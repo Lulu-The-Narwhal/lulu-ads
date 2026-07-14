@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import httpx
 import pytest
@@ -81,8 +82,29 @@ def test_sync_variant():
     assert ads.sponsored_slot_sync(context={"tool": "x"}) == GOOD
 
 
-async def test_no_args_no_env_returns_none():
+def test_sync_timeout_returns_none():
+    """sponsored_slot_sync must enforce a real wall-clock cap, not a per-phase
+    httpx timeout — MockTransport ignores httpx's timeout= entirely, so this
+    only passes if the sync path has its own hard deadline (thread + future)."""
+    def slow(request):
+        time.sleep(1.0)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(slow)
+
+    start = time.monotonic()
+    out = ads.sponsored_slot_sync(context={"tool": "x"}, timeout_ms=50)
+    elapsed = time.monotonic() - start
+
+    assert out is None
+    assert elapsed < 0.6
+
+
+async def test_no_args_no_env_returns_none(monkeypatch):
     """When no args and no env vars, client is inert: returns None, transport never called."""
+    monkeypatch.delenv("LULU_ADS_PUBLISHER_ID", raising=False)
+    monkeypatch.delenv("LULU_ADS_API_KEY", raising=False)
+    monkeypatch.delenv("LULU_ADS_BASE_URL", raising=False)
+
     call_count = []
 
     def handler(request):
