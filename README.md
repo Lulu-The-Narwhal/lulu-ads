@@ -2,36 +2,67 @@
 
 **Monetize your MCP server or agent tool with one labeled sponsored line.**
 
-Lulu Ads attaches a disclosed, labeled data field to your tool responses.
-The host model (Claude, Cursor, any agent) decides on its own judgment
-whether it's relevant enough to surface — we never instruct a model to
-display anything. If it renders and gets clicked, you earn 70% on CPA.
-If it doesn't — nobody pays, nothing breaks.
+[![PyPI](https://img.shields.io/pypi/v/lulu-ads.svg)](https://pypi.org/project/lulu-ads/)
+[![npm](https://img.shields.io/npm/v/lulu-ads.svg)](https://www.npmjs.com/package/lulu-ads)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Zero-friction start (MCP)
+Lulu Ads attaches a disclosed, labeled data field to your tool's own result.
+The host model — Claude, Cursor, any agent — decides on its own judgment
+whether it's relevant enough to surface. We never instruct it to.
 
-Add the Lulu Ads MCP server and ask your agent to do the rest:
+<table>
+<tr>
+<th>What the SDK ships (a data field)</th>
+<th>What the host renders (its choice)</th>
+</tr>
+<tr>
+<td>
+
+```json
+{
+  "sponsored": {
+    "label": "Sponsored",
+    "text": "Direct flights TLV–BKK from $412",
+    "url": "https://ads.getlulu.dev/c/9f2a1c"
+  }
+}
+```
+
+</td>
+<td>
+
+> **Sponsored** — Direct flights TLV–BKK from $412
+> [ads.getlulu.dev/c/9f2a1c](https://ads.getlulu.dev/c/9f2a1c)
+
+</td>
+</tr>
+</table>
+
+Zero-friction start — add the MCP server and let your agent do the rest:
 
 ```bash
 claude mcp add --transport http lulu-ads https://ads.getlulu.dev/mcp
 ```
 
-Then just say:
-
 > monetize my server
 
-The agent will fetch the right integration guide for your stack, register a
-publisher (with your consent), wire up the one-liner below, and verify it
-produced a live slot.
+It'll fetch the right integration guide for your stack, register a publisher
+(with your consent), wire up the one-liner, and verify a slot went live.
 
-## Quickstart (Python)
+**If it renders and gets clicked, you earn 70% on CPA. If it doesn't — nobody
+pays, nothing breaks.**
+
+**No prompt injection — we ship a data field; the host decides.**
+
+## Quickstart
+
+**Python**
 
 ```bash
 pip install lulu-ads
 ```
 
 ```python
-# pip install lulu-ads
 from lulu_ads import LuluAds
 ads = LuluAds(publisher_id="pub_123", api_key="lk_...")
 
@@ -43,8 +74,7 @@ result["sponsored"] = await ads.sponsored_slot(
 return result
 ```
 
-One line for FastMCP servers — credentials come from the environment, the
-call itself takes no arguments:
+FastMCP servers get it in one line — credentials come from the environment:
 
 ```bash
 export LULU_ADS_PUBLISHER_ID=pub_123
@@ -55,75 +85,96 @@ export LULU_ADS_API_KEY=lk_...
 mcp.add_middleware(LuluAdsMiddleware())
 ```
 
-## Quickstart (TypeScript)
+**TypeScript**
 
 ```bash
 npm install lulu-ads
 ```
 
 ```ts
-// npm install lulu-ads
 import { LuluAds } from "lulu-ads";
 const ads = new LuluAds({ publisherId: "pub_123", apiKey: "lk_..." });
 result.sponsored = await ads.sponsoredSlot({ context: { tool: "search_flights" } });
 ```
 
+No publisher ID yet? See [`docs/quickstart.md`](docs/quickstart.md) — three
+ways to get one, none of them gated on the others.
+
+## Framework integrations
+
+| Stack | One-liner | Docs |
+|---|---|---|
+| FastMCP (Python) | `mcp.add_middleware(LuluAdsMiddleware())` | [→](docs/integrations.md#fastmcp-python) |
+| LangChain / LangGraph (Python) | `middleware=[LuluAdsAgentMiddleware()]` | [→](docs/integrations.md#langchain--langgraph-python) |
+| CrewAI (Python) | `lulu_crewai.install()` | [→](docs/integrations.md#crewai-python) |
+| MCP TS SDK | `withLuluAds(server)` | [→](docs/integrations.md#mcp-servers-typescript) |
+| Runtime owners (chat bots, WhatsApp/Telegram agents) | `model_output + format_suffix(sponsored)` | [→](docs/integrations.md#runtime-owners-response-suffix) |
+| Any other runtime / language | `sponsored_slot(context)` over the raw contract | [→](docs/integrations.md#any-agent-runtime) |
+
 ## Guarantees (enforced in code, not just promised)
 
 | Guarantee | How |
 |---|---|
-| A tool call can never break because of ads | every failure path returns `None`/`null`; hard 150ms timeout |
-| Always disclosed | `label: "Sponsored"` is set by the SDK and cannot be removed |
-| No prompt injection, ever | we ship a data field; there is no display instruction anywhere |
-| No PII leaves your server | `context` accepts an allowlisted key set only |
-| Quality-gated | every creative passes Dali scoring (≥70) before it can fill a slot |
-| Intent, not identity | targeting uses the session's stated intent; no user profiles exist |
-| Misconfigured? Still safe | missing creds → client is inert, returns nothing, never crashes |
+| A tool call can never break because of ads | every failure path returns `None`/`null`; hard 150ms wall-clock timeout |
+| Always disclosed | `label: "Sponsored"` is set by the SDK, never sourced from the response body |
+| No prompt injection, ever | we ship a data field; there is no display instruction anywhere in the contract |
+| No PII leaves your server | `context` is filtered against an allowlist client-side, before any request is built |
+| Quality-gated | every creative passes [Dali](https://dali.getlulu.dev) scoring (≥70) before it can fill a slot |
+| Intent, not identity | targeting uses this call's stated context only — no user profiles, no cross-session ID |
+| Misconfigured? Still safe | missing credentials → client is inert, returns `None`/`null`, zero network calls |
 
-## Framework adapters
+## Why not just…
 
-Full details, exclude-lists, and every supported stack: [`docs/integrations.md`](docs/integrations.md).
+**…tell the model to mention a sponsor in its reply?**
+Display instructions get MCP servers delisted by registries that scan for
+injected directives. We ship a plain data object — `label`, `text`, `url` —
+with no field, anywhere in the contract, that tells a model how to render or
+phrase anything.
 
-**LangGraph / LangChain** (`langchain>=1.0`) — middleware, no manual attach step:
+**…count impressions and charge per view?**
+An "impression" only exists if a model actually rendered it, and that's
+unverifiable from the server side — easy to game, hard to audit. We charge
+CPA only, on a click that redeems a signed, server-verified token. Payment
+maps to a real user action, not a claim.
 
-```python
-from langchain.agents import create_agent
-from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
+**…scan the conversation to target better?**
+Reading transcripts to target ads is a privacy trap: everything a user says
+becomes ad-targeting data. We accept six allowlisted context keys — `tool`,
+`category`, `query`, `route`, `locale`, `country` — stated intent for this
+call only. No transcripts, no profiles, no PII fields exist in the schema.
 
-agent = create_agent(model, tools, middleware=[LuluAdsAgentMiddleware()])
+## How it works
+
+```
+tool call
+   │
+   ▼
+your tool's own result
+   │
+   ▼
+POST /slot  (150ms cap, allowlisted context only)
+   │
+   ▼
+labeled data field  { label: "Sponsored", text, url }   ← attached, never injected
+   │
+   ▼
+host / model judgment   →   renders it, or doesn't — not our call
+   │  user clicks
+   ▼
+GET /c/{token}   →   signed redirect, click recorded
+   │
+   ▼
+advertiser's affiliate rails   →   POST /postback on conversion
+   │
+   ▼
+70% publisher / 30% Lulu, on the ledger
 ```
 
-**CrewAI** (`crewai>=1.9.1`) — one call at startup, before you kick off a crew:
+Full wire-level detail: [`docs/contract.md`](docs/contract.md).
 
-```python
-import lulu_ads.integrations.crewai as lulu_crewai
-lulu_crewai.install()
-```
+---
 
-**TypeScript MCP servers** — wrap the server once, before registering tools:
-
-```ts
-import { withLuluAds } from "lulu-ads";
-withLuluAds(server);
-```
-
-**Runtime owners** (chat bots, WhatsApp/Telegram agents, anything that owns
-the final message the user sees) — append a disclosed suffix after
-generation, as harness code, never as a model instruction:
-
-```python
-from lulu_ads import format_suffix
-final_message = model_output + format_suffix(sponsored)
-```
-
-## Get a publisher ID
-
-Three ways:
-- Ask an MCP-connected agent to call the `create_publisher` tool on `https://ads.getlulu.dev/mcp`
-- Early beta signup: https://getlulu.dev/publishers
-- `POST https://ads.getlulu.dev/publishers` with `{"name", "contact_email", "server_url"}`
-
-See [`docs/quickstart.md`](docs/quickstart.md) for the full walkthrough and
-[`docs/contract.md`](docs/contract.md) for the wire-level API.
-
-Docs: https://getlulu.dev/docs · Built by [Lulu](https://getlulu.dev) · Quality gate: [Dali](https://dali.getlulu.dev)
+Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
+[API contract](docs/contract.md) · [Integrations](docs/integrations.md) ·
+[Publisher signup](https://getlulu.dev/publishers) · Quality gate:
+[Dali](https://dali.getlulu.dev) · [MIT](LICENSE)
