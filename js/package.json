@@ -1,5 +1,5 @@
 {
-  "name": "@getlulu/ads",
+  "name": "lulu-ads",
   "version": "0.1.0",
   "description": "Disclosed sponsored slots for MCP servers and AI agent tools. Ships data, never directives. Fail-open by design.",
   "license": "MIT",

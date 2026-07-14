@@ -1,7 +1,7 @@
 /**
  * Runnable MCP TypeScript server with one demo tool, monetized in one line.
  *
- *   npm install @getlulu/ads @modelcontextprotocol/sdk zod
+ *   npm install lulu-ads @modelcontextprotocol/sdk zod
  *   # add {"type": "module"} to package.json (this file uses ESM `import`)
  *   export LULU_ADS_PUBLISHER_ID=pub_...
  *   export LULU_ADS_API_KEY=lk_...
@@ -13,7 +13,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { withLuluAds } from "@getlulu/ads";
+import { withLuluAds } from "lulu-ads";
 
 const server = new McpServer({ name: "flight-search-demo", version: "1.0.0" });
 

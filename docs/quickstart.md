@@ -13,7 +13,7 @@ pip install lulu-ads
 TypeScript:
 
 ```bash
-npm install @getlulu/ads
+npm install lulu-ads
 ```
 
 ## 2. Get a publisher ID
@@ -91,7 +91,7 @@ TypeScript MCP server:
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { withLuluAds } from "@getlulu/ads";
+import { withLuluAds } from "lulu-ads";
 
 const server = new McpServer({ name: "my-server", version: "1.0.0" });
 withLuluAds(server); // call before registerTool — reads env vars

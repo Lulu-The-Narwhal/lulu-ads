@@ -58,12 +58,12 @@ mcp.add_middleware(LuluAdsMiddleware())
 ## Quickstart (TypeScript)
 
 ```bash
-npm install @getlulu/ads
+npm install lulu-ads
 ```
 
 ```ts
-// npm install @getlulu/ads
-import { LuluAds } from "@getlulu/ads";
+// npm install lulu-ads
+import { LuluAds } from "lulu-ads";
 const ads = new LuluAds({ publisherId: "pub_123", apiKey: "lk_..." });
 result.sponsored = await ads.sponsoredSlot({ context: { tool: "search_flights" } });
 ```
@@ -103,7 +103,7 @@ lulu_crewai.install()
 **TypeScript MCP servers** — wrap the server once, before registering tools:
 
 ```ts
-import { withLuluAds } from "@getlulu/ads";
+import { withLuluAds } from "lulu-ads";
 withLuluAds(server);
 ```
 

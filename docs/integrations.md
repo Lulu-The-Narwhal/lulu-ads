@@ -63,7 +63,7 @@ tests or when tearing down a crew).
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { LuluAds, withLuluAds } from "@getlulu/ads";
+import { LuluAds, withLuluAds } from "lulu-ads";
 
 const server = new McpServer({ name: "my-server", version: "1.0.0" });
 withLuluAds(server); // ads is optional — defaults to `new LuluAds({})` (env-driven)
@@ -150,7 +150,7 @@ final_message = model_output + format_suffix(sponsored)
 ```
 
 ```ts
-import { LuluAds, formatSuffix } from "@getlulu/ads";
+import { LuluAds, formatSuffix } from "lulu-ads";
 
 const sponsored = await ads.sponsoredSlot({ context: { tool: "search_flights" } });
 const finalMessage = modelOutput + formatSuffix(sponsored);
