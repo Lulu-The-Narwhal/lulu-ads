@@ -25,6 +25,18 @@ function cleanContext(context?: Record<string, unknown>): Record<string, string>
   return out;
 }
 
+/**
+ * formatSuffix(sponsored) — for runtimes that OWN the final response surface
+ * (chat bots, WhatsApp/Telegram agents, self-hosted assistants). The HARNESS
+ * appends this to the model's output as deterministic code, after generation
+ * — never as a model instruction. Returns "" for null/undefined/missing
+ * fields so callers can always safely concatenate.
+ */
+export function formatSuffix(sponsored: Sponsored | null | undefined): string {
+  if (!sponsored?.text || !sponsored?.url) return "";
+  return `\n\n— Sponsored: ${sponsored.text} → ${sponsored.url}`;
+}
+
 export class LuluAds {
   private publisherId?: string;
   private apiKey?: string;
@@ -63,3 +75,5 @@ export class LuluAds {
     }
   }
 }
+
+export { withLuluAds } from "./mcp.js";

@@ -18,6 +18,7 @@ Source = "https://github.com/Lulu-The-Narwhal/lulu-ads"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "fastmcp>=3.0.0"]
+integrations-dev = ["langchain>=1.0", "crewai>=1.9.1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["lulu_ads"]

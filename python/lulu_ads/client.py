@@ -47,6 +47,21 @@ def _clean_context(context: dict | None) -> dict:
     }
 
 
+def format_suffix(sponsored: dict | None) -> str:
+    """For runtimes that OWN the final response surface (chat bots,
+    WhatsApp/Telegram agents, self-hosted assistants). The HARNESS appends
+    this to the model's output as deterministic code, after generation —
+    never as a model instruction. Returns "" for None or a malformed dict
+    so callers can always safely concatenate.
+    """
+    if not isinstance(sponsored, dict):
+        return ""
+    text, url = sponsored.get("text"), sponsored.get("url")
+    if not text or not url:
+        return ""
+    return f"\n\n— Sponsored: {text} → {url}"
+
+
 def _parse(status_code: int, json_body) -> dict | None:
     if status_code != 200 or not isinstance(json_body, dict):
         return None

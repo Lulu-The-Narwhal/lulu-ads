@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { LuluAds } from "../src/index.js";
+import { LuluAds, formatSuffix } from "../src/index.js";
 
 const GOOD = { label: "Sponsored", text: "Lulu Ads", url: "https://ads.getlulu.dev/c/x" };
 
@@ -82,6 +82,18 @@ test("no opts, no env → inert, resolves null, no fetch call", async () => {
   const result = await new LuluAds().sponsoredSlot({ context: { tool: "x" } });
   expect(result).toBeNull();
   expect(fetchSpy).not.toHaveBeenCalled();
+});
+
+test("formatSuffix: null/undefined → empty string", () => {
+  expect(formatSuffix(null)).toBe("");
+  expect(formatSuffix(undefined)).toBe("");
+});
+
+test("formatSuffix: happy path contains Sponsored, text, url", () => {
+  const suffix = formatSuffix(GOOD);
+  expect(suffix).toContain("Sponsored:");
+  expect(suffix).toContain(GOOD.text);
+  expect(suffix).toContain(GOOD.url);
 });
 
 test("env vars set → used as defaults, x-api-key from env", async () => {
