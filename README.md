@@ -1,14 +1,25 @@
+<div align="center">
+
 # lulu-ads
+
+### *The monetization layer for the agent economy.*
 
 **Monetize your MCP server or agent tool with one labeled sponsored line.**
 
 [![PyPI](https://img.shields.io/pypi/v/lulu-ads.svg)](https://pypi.org/project/lulu-ads/)
 [![npm](https://img.shields.io/npm/v/lulu-ads.svg)](https://www.npmjs.com/package/lulu-ads)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Backend](https://img.shields.io/badge/backend-live-brightgreen)](https://ads.getlulu.dev/health)
+[![Publisher beta](https://img.shields.io/badge/publisher_beta-open-E07A00)](https://getlulu.dev/publishers)
+[![Rev share](https://img.shields.io/badge/rev_share-70%25-blueviolet)](docs/contract.md)
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
-</p>
+[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Become a publisher](https://getlulu.dev/publishers)
+
+<img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
+
+`70% to publishers · CPA only · 150ms fail-open · 0 prompt injections, by design`
+
+</div>
 
 Lulu Ads attaches a disclosed, labeled data field to your tool's own result.
 The host model — Claude, Cursor, any agent — decides on its own judgment
