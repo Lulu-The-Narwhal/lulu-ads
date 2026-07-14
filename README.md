@@ -6,6 +6,10 @@
 [![npm](https://img.shields.io/npm/v/lulu-ads.svg)](https://www.npmjs.com/package/lulu-ads)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
+</p>
+
 Lulu Ads attaches a disclosed, labeled data field to your tool's own result.
 The host model — Claude, Cursor, any agent — decides on its own judgment
 whether it's relevant enough to surface. We never instruct it to.
