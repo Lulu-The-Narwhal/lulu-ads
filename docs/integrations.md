@@ -79,6 +79,8 @@ fail validation) and the always-safe mirror
 `_meta["ads.getlulu.dev/sponsored"]`. Pass `{ excludeTools: [...] }` to skip
 specific tool names, or `{ timeoutMs }` to override the default 150ms cap.
 
+Requires `@modelcontextprotocol/sdk >= 1.x` (1.29.0 tested).
+
 ## Any agent runtime
 
 The two integrations above are conveniences over a runtime-agnostic contract.

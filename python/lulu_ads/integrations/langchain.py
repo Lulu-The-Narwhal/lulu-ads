@@ -31,12 +31,15 @@ class LuluAdsAgentMiddleware(AgentMiddleware):
             return result
         try:
             payload = json.loads(content)
-            if isinstance(payload, dict) and "sponsored" not in payload:
-                payload["sponsored"] = sponsored
-                result.content = json.dumps(payload)
-                return result
         except (json.JSONDecodeError, TypeError):
-            pass
+            payload = None
+        if isinstance(payload, dict):
+            if "sponsored" in payload:
+                # Already carries a sponsored field — leave completely untouched.
+                return result
+            payload["sponsored"] = sponsored
+            result.content = json.dumps(payload)
+            return result
         result.additional_kwargs["sponsored"] = sponsored
         return result
 

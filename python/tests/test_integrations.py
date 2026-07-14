@@ -69,6 +69,73 @@ def test_langchain_excluded_and_failopen():
     assert json.loads(out2.content) == {"a": 1}  # backend down → untouched
 
 
+def test_langchain_existing_sponsored_key_skipped():
+    pytest.importorskip("langchain.agents.middleware")
+    from langchain.messages import ToolMessage
+    from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
+
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    _mock_ads(mw)
+
+    class Req:
+        tool_call = {"name": "search_flights"}
+
+    original_content = json.dumps(
+        {"a": 1, "sponsored": {"label": "Sponsored", "text": "orig", "url": "u"}}
+    )
+    out = mw.wrap_tool_call(Req(), lambda req: ToolMessage(content=original_content, tool_call_id="t1"))
+    assert out.content == original_content
+    assert "sponsored" not in out.additional_kwargs
+
+
+async def test_langchain_awrap_tool_call_attaches_sponsored():
+    pytest.importorskip("langchain.agents.middleware")
+    from langchain.messages import ToolMessage
+    from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
+
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    _mock_ads(mw)
+
+    class Req:
+        tool_call = {"name": "search_flights"}
+
+    original = ToolMessage(content=json.dumps({"flights": [1]}), tool_call_id="t1")
+
+    async def handler(req):
+        return original
+
+    out = await mw.awrap_tool_call(Req(), handler)
+    assert json.loads(out.content)["sponsored"] == GOOD
+    assert json.loads(out.content)["flights"] == [1]
+
+
+def test_langchain_middleware_inert_no_creds(monkeypatch):
+    pytest.importorskip("langchain.agents.middleware")
+    from langchain.messages import ToolMessage
+    from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
+
+    monkeypatch.delenv("LULU_ADS_PUBLISHER_ID", raising=False)
+    monkeypatch.delenv("LULU_ADS_API_KEY", raising=False)
+    monkeypatch.delenv("LULU_ADS_BASE_URL", raising=False)
+
+    mw = LuluAdsAgentMiddleware()
+    assert mw._ads._is_inert()
+
+    calls = []
+    mw._ads._transport = httpx.MockTransport(
+        lambda r: (calls.append(r), httpx.Response(200, json=GOOD))[1]
+    )
+
+    class Req:
+        tool_call = {"name": "search_flights"}
+
+    original = ToolMessage(content=json.dumps({"flights": [1]}), tool_call_id="t1")
+    out = mw.wrap_tool_call(Req(), lambda req: original)
+    assert out is original
+    assert json.loads(out.content) == {"flights": [1]}
+    assert calls == []
+
+
 def test_crewai_hook_attaches_sponsored():
     pytest.importorskip("crewai.hooks")
     from lulu_ads.integrations import crewai as lc
@@ -83,6 +150,35 @@ def test_crewai_hook_attaches_sponsored():
 
         out = hook(Ctx())
         assert json.loads(out)["sponsored"] == GOOD
+    finally:
+        from crewai.hooks import unregister_after_tool_call_hook
+        unregister_after_tool_call_hook(hook)
+
+
+def test_crewai_install_inert_no_creds(monkeypatch):
+    pytest.importorskip("crewai.hooks")
+    from lulu_ads.integrations import crewai as lc
+
+    monkeypatch.delenv("LULU_ADS_PUBLISHER_ID", raising=False)
+    monkeypatch.delenv("LULU_ADS_API_KEY", raising=False)
+    monkeypatch.delenv("LULU_ADS_BASE_URL", raising=False)
+
+    hook = lc.install()
+    try:
+        assert lc._ads._is_inert()
+
+        calls = []
+        lc._ads._transport = httpx.MockTransport(
+            lambda r: (calls.append(r), httpx.Response(200, json=GOOD))[1]
+        )
+
+        class Ctx:
+            tool_name = "search_flights"
+            tool_result = json.dumps({"flights": [1]})
+
+        out = hook(Ctx())
+        assert out is None
+        assert calls == []
     finally:
         from crewai.hooks import unregister_after_tool_call_hook
         unregister_after_tool_call_hook(hook)
