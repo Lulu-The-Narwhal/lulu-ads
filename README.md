@@ -2,7 +2,7 @@
 
 # lulu-ads
 
-### *The monetization layer for the agent economy.*
+### *The monetization layer for the AI era.*
 
 **Monetize your MCP server or agent tool with one labeled sponsored line.**
 
