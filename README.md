@@ -13,7 +13,7 @@
 [![Publisher beta](https://img.shields.io/badge/publisher_beta-open-E07A00)](https://getlulu.dev/publishers)
 [![Rev share](https://img.shields.io/badge/rev_share-70%25-blueviolet)](docs/contract.md)
 
-[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Become a publisher](https://getlulu.dev/publishers)
+[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
@@ -182,7 +182,7 @@ GET /c/{token}   →   signed redirect, click recorded
 advertiser's affiliate rails   →   POST /postback on conversion
    │
    ▼
-70% publisher / 30% Lulu, on the ledger
+70% publisher / 30% Lulu, on the ledger. Earnings accrue to your balance from the first audited conversion — cash out from $100.
 ```
 
 Full wire-level detail: [`docs/contract.md`](docs/contract.md).
@@ -193,3 +193,13 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 [API contract](docs/contract.md) · [Integrations](docs/integrations.md) ·
 [Publisher signup](https://getlulu.dev/publishers) · Quality gate:
 [Dali](https://dali.getlulu.dev) · [MIT](LICENSE)
+
+## Changelog
+
+- **0.1.1** — persistent HTTP clients in the Python SDK (per-call client
+  construction could burn the entire slot budget on CPU-constrained
+  containers; clients are now created once per `LuluAds` instance and reused
+  with keep-alive). Fail-open behavior unchanged.
+- **0.1.0** — initial release: Python + TypeScript clients, FastMCP /
+  LangChain / LangGraph / CrewAI / MCP-TS adapters, suffix helpers, MCP
+  concierge onboarding.
