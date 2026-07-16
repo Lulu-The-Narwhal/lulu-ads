@@ -136,3 +136,38 @@ async def test_env_vars_set(monkeypatch):
 
     assert out == GOOD
     assert captured_headers.get("x-api-key") == "lk_env_key"
+
+
+def test_sync_client_is_persistent_across_calls():
+    """Regression: constructing httpx.Client per call costs an SSL-context
+    build (~hundreds of ms on constrained containers) — enough to blow the
+    entire slot budget deterministically. The client must be created once
+    and reused."""
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(200, json={"text": "t", "url": "u"})
+
+    ads = LuluAds("pub_x", "key_x")
+    ads._transport = httpx.MockTransport(handler)
+    assert ads.sponsored_slot_sync(timeout_ms=1000) is not None
+    first = ads._sync_client
+    assert first is not None
+    assert ads.sponsored_slot_sync(timeout_ms=1000) is not None
+    assert ads._sync_client is first
+    assert calls["n"] == 2
+
+
+def test_sync_client_rebuilt_when_transport_changes():
+    def ok(request):
+        return httpx.Response(200, json={"text": "t", "url": "u"})
+
+    def fail(request):
+        return httpx.Response(500)
+
+    ads = LuluAds("pub_x", "key_x")
+    ads._transport = httpx.MockTransport(ok)
+    assert ads.sponsored_slot_sync(timeout_ms=1000) is not None
+    ads._transport = httpx.MockTransport(fail)
+    assert ads.sponsored_slot_sync(timeout_ms=1000) is None

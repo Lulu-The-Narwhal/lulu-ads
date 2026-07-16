@@ -11,6 +11,7 @@ to display anything. The host decides.
 """
 import asyncio
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import httpx
@@ -88,6 +89,38 @@ class LuluAds:
 
         self._base_url = base_url.rstrip("/")
         self._transport: httpx.BaseTransport | None = None  # test seam
+        # Persistent clients, created lazily on first use. Constructing an
+        # httpx client builds an SSL context (CA-bundle load) which can cost
+        # hundreds of ms on CPU-constrained containers — more than a typical
+        # slot budget. Paying that once and reusing connections (keep-alive)
+        # is the only way small timeout_ms values are meetable in production.
+        # If a cold first call exceeds its budget it still returns None, but
+        # the abandoned worker finishes construction and caches the client,
+        # so every later call runs warm.
+        self._sync_client: httpx.Client | None = None
+        self._sync_client_transport: httpx.BaseTransport | None = None
+        self._async_client: httpx.AsyncClient | None = None
+        self._async_client_transport: httpx.BaseTransport | None = None
+        self._client_lock = threading.Lock()
+
+    def _ensure_sync_client(self) -> httpx.Client:
+        with self._client_lock:
+            if self._sync_client is None or self._sync_client_transport is not self._transport:
+                if self._sync_client is not None:
+                    try:
+                        self._sync_client.close()
+                    except Exception:
+                        pass
+                self._sync_client = httpx.Client(timeout=5.0, transport=self._transport)
+                self._sync_client_transport = self._transport
+            return self._sync_client
+
+    def _ensure_async_client(self) -> httpx.AsyncClient:
+        with self._client_lock:
+            if self._async_client is None or self._async_client_transport is not self._transport:
+                self._async_client = httpx.AsyncClient(timeout=5.0, transport=self._transport)
+                self._async_client_transport = self._transport
+            return self._async_client
 
     def _is_inert(self) -> bool:
         """Check if client has minimal creds to make requests."""
@@ -106,10 +139,8 @@ class LuluAds:
             return None
 
         async def _fetch():
-            async with httpx.AsyncClient(
-                timeout=timeout_ms / 1000, transport=self._transport
-            ) as client:
-                r = await client.post(**self._request_args(context))
+            client = self._ensure_async_client()
+            r = await client.post(**self._request_args(context), timeout=timeout_ms / 1000)
             if r.status_code != 200:
                 return None
             return _parse(r.status_code, r.json() if r.content else None)
@@ -126,8 +157,8 @@ class LuluAds:
             return None
 
         def _fetch():
-            with httpx.Client(timeout=timeout_ms / 1000, transport=self._transport) as client:
-                r = client.post(**self._request_args(context))
+            client = self._ensure_sync_client()
+            r = client.post(**self._request_args(context), timeout=timeout_ms / 1000)
             if r.status_code != 200:
                 return None
             return _parse(r.status_code, r.json() if r.content else None)
