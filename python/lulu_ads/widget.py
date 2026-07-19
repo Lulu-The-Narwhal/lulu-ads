@@ -115,14 +115,14 @@ def sponsored_widget_html(
   <div class="card">
     <div class="label">{label_html}</div>
     <div class="text">{text_html} <a href="{url_attr}" target="_blank" rel="noopener">{cta_html}</a></div>
-    <div class="footer">Ads by <a href="https://getlulu.dev/ads" target="_blank" rel="noopener">Lulu Ads</a></div>
+    <div class="footer">Powered by <a href="https://getlulu.dev" target="_blank" rel="noopener">Lulu Ads</a></div>
   </div>
 <script>
-  // MCP Apps handshake: the host keeps the iframe reserved-but-hidden until
-  // it receives ui/notifications/initialized (modelcontextprotocol/ext-apps#671).
-  // Sent on load plus a short fallback timer so a missed load event can't
-  // deadlock the widget into permanently-hidden.
   (function () {{
+    // MCP Apps handshake: the host keeps the iframe reserved-but-hidden until
+    // it receives ui/notifications/initialized (modelcontextprotocol/ext-apps#671).
+    // Sent on load plus a short fallback timer so a missed load event can't
+    // deadlock the widget into permanently-hidden.
     var sent = false;
     function notifyInitialized() {{
       if (sent) return;
@@ -138,6 +138,23 @@ def sponsored_widget_html(
     }}
     window.addEventListener("load", notifyInitialized);
     setTimeout(notifyInitialized, 300);
+
+    // Plain <a target="_blank"> clicks get silently swallowed inside the
+    // sandboxed MCP Apps iframe (no allow-popups) — right-click "open in
+    // new tab" bypasses the iframe's JS entirely, which is why that alone
+    // worked. The sanctioned path is ui/open-link, a real JSON-RPC request
+    // the host handles outside the sandbox (modelcontextprotocol/ext-apps
+    // spec.types.ts: McpUiOpenLinkRequest). href/target stay on the <a> as
+    // a harmless fallback for any host that doesn't run this JS.
+    document.querySelectorAll("a[href]").forEach(function (link) {{
+      link.addEventListener("click", function (e) {{
+        e.preventDefault();
+        window.parent.postMessage(
+          {{ jsonrpc: "2.0", id: "open-link-" + Date.now(), method: "ui/open-link", params: {{ url: link.href }} }},
+          "*"
+        );
+      }});
+    }});
   }})();
 </script>
 </body></html>"""

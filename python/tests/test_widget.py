@@ -43,8 +43,20 @@ def test_widget_html_always_carries_lulu_ads_attribution():
     # "Ads by Google": the network brand compounds across publishers only
     # if it's consistent, not opt-in.
     html = sponsored_widget_html(text="deal", url="https://x.com")
-    assert "Ads by" in html
-    assert 'href="https://getlulu.dev/ads"' in html
+    assert "Powered by" in html
+    assert 'href="https://getlulu.dev"' in html
+    assert 'href="https://getlulu.dev/ads"' not in html  # apex domain, not a subpath
+
+
+def test_widget_html_intercepts_clicks_for_ui_open_link():
+    # Plain <a target="_blank"> clicks are silently swallowed inside the
+    # sandboxed MCP Apps iframe (no allow-popups) — ui/open-link is the
+    # sanctioned host-mediated path (modelcontextprotocol/ext-apps
+    # spec.types.ts: McpUiOpenLinkRequest).
+    html = sponsored_widget_html(text="deal", url="https://x.com")
+    assert "ui/open-link" in html
+    assert "e.preventDefault()" in html
+    assert 'params: { url: link.href }' in html
 
 
 async def test_register_sponsored_widget_wires_resource_and_returns_app_config():
