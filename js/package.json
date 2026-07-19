@@ -1,7 +1,27 @@
 {
   "name": "lulu-ads",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Disclosed sponsored slots for MCP servers and AI agent tools. Ships data, never directives. Fail-open by design.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "llm-agents",
+    "agent-economy",
+    "monetization",
+    "ads",
+    "advertising",
+    "sponsored",
+    "claude",
+    "fastmcp",
+    "langchain",
+    "crewai",
+    "openclaw"
+  ],
+  "homepage": "https://getlulu.dev",
+  "bugs": {
+    "url": "https://github.com/Lulu-The-Narwhal/lulu-ads/issues"
+  },
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",

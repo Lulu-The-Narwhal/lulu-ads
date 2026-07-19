@@ -4,17 +4,27 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lulu-ads"
-version = "0.2.0"
+version = "0.2.1"
 description = "Disclosed sponsored slots for MCP servers and AI agent tools. Ships data, never directives. Fail-open by design."
 readme = "../README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = ["httpx>=0.24.0"]
+keywords = ["mcp", "model-context-protocol", "ai-agents", "llm-agents", "agent-economy", "monetization", "ads", "advertising", "sponsored", "claude", "fastmcp", "langchain", "crewai", "openclaw"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
 [project.urls]
 Homepage = "https://getlulu.dev"
 Documentation = "https://getlulu.dev/docs"
 Source = "https://github.com/Lulu-The-Narwhal/lulu-ads"
+Issues = "https://github.com/Lulu-The-Narwhal/lulu-ads/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "fastmcp>=3.0.0"]

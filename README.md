@@ -75,6 +75,8 @@ pays, nothing breaks.**
 
 ```bash
 pip install lulu-ads
+# or: uv add lulu-ads
+# or: poetry add lulu-ads
 ```
 
 ```python
@@ -104,6 +106,9 @@ mcp.add_middleware(LuluAdsMiddleware())
 
 ```bash
 npm install lulu-ads
+# or: pnpm add lulu-ads
+# or: yarn add lulu-ads
+# or: bun add lulu-ads
 ```
 
 ```ts
