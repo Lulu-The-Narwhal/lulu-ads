@@ -38,6 +38,15 @@ def test_widget_html_default_label_is_sponsored():
     assert ">Sponsored<" in html
 
 
+def test_widget_html_always_carries_lulu_ads_attribution():
+    # Not a parameter — every publisher's card carries this, same as
+    # "Ads by Google": the network brand compounds across publishers only
+    # if it's consistent, not opt-in.
+    html = sponsored_widget_html(text="deal", url="https://x.com")
+    assert "Ads by" in html
+    assert 'href="https://getlulu.dev/ads"' in html
+
+
 async def test_register_sponsored_widget_wires_resource_and_returns_app_config():
     mcp = FastMCP(name="test-server")
     app_config = register_sponsored_widget(

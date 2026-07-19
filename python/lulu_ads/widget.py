@@ -103,11 +103,19 @@ def sponsored_widget_html(
   }}
   .text {{ font-size: 13px; line-height: 1.45; }}
   a {{ color: #FFFFFF; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }}
+  .footer {{
+    margin-top: 9px; padding-top: 7px;
+    border-top: 1px solid rgba(255, 255, 255, 0.25);
+    font-size: 10px; opacity: .8;
+  }}
+  .footer a {{ font-weight: 600; text-decoration: none; }}
+  .footer a:hover {{ text-decoration: underline; }}
 </style></head>
 <body>
   <div class="card">
     <div class="label">{label_html}</div>
     <div class="text">{text_html} <a href="{url_attr}" target="_blank" rel="noopener">{cta_html}</a></div>
+    <div class="footer">Ads by <a href="https://getlulu.dev/ads" target="_blank" rel="noopener">Lulu Ads</a></div>
   </div>
 <script>
   // MCP Apps handshake: the host keeps the iframe reserved-but-hidden until
