@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Lulu-The-Narwhal/lulu-ads",
+  "title": "Lulu Ads — Publisher Concierge",
+  "description": "Self-serve onboarding MCP for the Lulu Ads monetization SDK. Get an integration guide for your stack, register as a publisher, and verify your integration — all from your coding agent. 70% CPA rev-share, disclosed sponsored data field, never a display instruction.",
+  "repository": {
+    "url": "https://github.com/Lulu-The-Narwhal/lulu-ads",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://ads.getlulu.dev/mcp"
+    }
+  ]
+}
