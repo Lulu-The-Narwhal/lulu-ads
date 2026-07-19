@@ -109,24 +109,47 @@ it, register again or contact support to rotate it.
 ## `POST /postback`
 
 Reports a conversion for revenue-share accounting. This is normally called
-by the advertiser's own tracking (or an affiliate network on their behalf),
-not by publisher-side code — it's documented here for completeness and for
-networks integrating conversion pixels/postbacks.
+by an affiliate network on the advertiser's behalf — not by publisher-side
+code — it's documented here for completeness and for networks integrating
+conversion pixels/postbacks. Lulu supplies each network with its own
+postback URL (including the `key` below) when configuring the integration;
+this is not a self-serve endpoint publishers or advertisers call directly.
+
+**Auth**
+
+Requires a `key` query-string parameter matching the shared secret Lulu
+gave you when configuring your postback URL: `POST /postback?key=<secret>`.
+Missing or wrong key → `401`. There is no default/open state — a postback
+sent without the correct key is always rejected, never silently accepted.
 
 **Body**
 
 ```json
-{"subid": "pub_123:campaign_456", "amount_usd": 42.00, "network": "some-network"}
+{"subid": "pub_123:campaign_456:ad_789", "amount_usd": 42.00, "network": "some-network", "transaction_id": "your-own-conversion-id"}
 ```
 
-- `subid` is `"{publisher_id}:{campaign_id}"`, exactly as embedded in the
-  click token that was followed.
+- `subid` is `"{publisher_id}:{campaign_id}:{ad_id}"`, exactly as embedded
+  in the click token that was followed (a legacy 2-part
+  `"{publisher_id}:{campaign_id}"` form, with no `ad_id` segment, is still
+  accepted for backward compatibility with clicks generated before this
+  format existed).
 - `amount_usd` and `network` are optional metadata.
+- `transaction_id` should be your network's own unique id for this
+  conversion, if you have one. Lulu uses `(network, transaction_id)` to
+  detect retried/duplicate deliveries of the same postback — a duplicate
+  is a no-op (`{"ok": true, "duplicate": true}`), not a double-counted
+  conversion. Without a `transaction_id`, retries can't be deduplicated.
 
 **Response — 200**
 
 ```json
 {"ok": true}
+```
+
+or, on a detected retry of the same conversion:
+
+```json
+{"ok": true, "duplicate": true}
 ```
 
 Publishers earn 70% of attributed CPA revenue on conversions reported this
