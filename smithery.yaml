@@ -1,0 +1,13 @@
+name: Lulu Ads — Publisher Concierge
+description: >
+  Self-serve onboarding for the Lulu Ads monetization SDK. Get an
+  integration guide for your stack, register as a publisher (free), wire up
+  a disclosed sponsored data field on your MCP server's tool responses, and
+  verify it's live. 70% CPA rev-share, fail-open, never a display
+  instruction — the host model decides whether to render it.
+homepage: https://getlulu.dev
+icon: https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg
+
+startCommand:
+  type: http
+  url: https://ads.getlulu.dev/mcp
