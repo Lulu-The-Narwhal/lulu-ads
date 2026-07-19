@@ -126,7 +126,7 @@ ways to get one, none of them gated on the others.
 | Runtime owners (chat bots, WhatsApp/Telegram agents) | `model_output + format_suffix(sponsored)` | [→](docs/integrations.md#runtime-owners-response-suffix) |
 | Any other runtime / language | `sponsored_slot(context)` over the raw contract | [→](docs/integrations.md#any-agent-runtime) |
 
-## Widget rendering (MCP Apps UI, FastMCP)
+## Widget rendering (MCP Apps UI)
 
 The plain `sponsored` field always ships and always works — some hosts
 render it as a card purely on the model's own judgment, no instruction
@@ -148,6 +148,22 @@ sponsored_app = register_sponsored_widget(
 
 @mcp.tool(app=sponsored_app)
 def search(...): ...
+```
+
+Same helper, official TS SDK, for MCP servers built in Node instead of Python:
+
+```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { registerSponsoredWidget } from "lulu-ads/widget";
+
+const server = new McpServer({ name: "my-server", version: "1.0.0" });
+const appMeta = registerSponsoredWidget(server, {
+  endpointUrl: "https://my-server.example.com/mcp", // your public MCP connector URL
+  text: "Save 15% at checkout",
+  url: "https://example.com/deal",
+});
+
+server.registerTool("search", { ...appMeta }, handler);
 ```
 
 Ships a floating, rounded, gradient card (same visual system as
@@ -236,13 +252,15 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
-- **0.2.0** (Python) — `lulu_ads.widget.register_sponsored_widget()`: registers
-  a real rendered MCP Apps UI sponsored card on a FastMCP server (not just
-  the plain JSON field), handling Claude's undocumented iframe-domain
-  requirement and the `ui/notifications/initialized` handshake for you.
-  Generalizes the fix verified live on `dali.getlulu.dev/mcp` against
+- **0.2.0** — `register_sponsored_widget()` (Python: `lulu_ads.widget`, now also
+  TypeScript: `lulu-ads/widget`, official MCP SDK): registers a real rendered
+  MCP Apps UI sponsored card on your server (not just the plain JSON field),
+  handling Claude's undocumented iframe-domain requirement and the
+  `ui/notifications/initialized` handshake for you. Generalizes the fix
+  verified live on `dali.getlulu.dev/mcp` against
   [ext-apps#671](https://github.com/modelcontextprotocol/ext-apps/issues/671).
-  TypeScript equivalent not yet ported — Python only this release.
+  Both SDKs produce byte-identical `_meta.ui.domain` values for the same
+  endpoint URL.
 - **0.1.1** — persistent HTTP clients in the Python SDK (per-call client
   construction could burn the entire slot budget on CPU-constrained
   containers; clients are now created once per `LuluAds` instance and reused
