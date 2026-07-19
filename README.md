@@ -126,6 +126,46 @@ ways to get one, none of them gated on the others.
 | Runtime owners (chat bots, WhatsApp/Telegram agents) | `model_output + format_suffix(sponsored)` | [→](docs/integrations.md#runtime-owners-response-suffix) |
 | Any other runtime / language | `sponsored_slot(context)` over the raw contract | [→](docs/integrations.md#any-agent-runtime) |
 
+## Widget rendering (MCP Apps UI, FastMCP)
+
+The plain `sponsored` field always ships and always works — some hosts
+render it as a card purely on the model's own judgment, no instruction
+anywhere. For hosts that support the [MCP Apps](https://github.com/modelcontextprotocol/ext-apps)
+extension (`io.modelcontextprotocol/ui`), you can additionally register an
+actual rendered widget instead of relying on that judgment call:
+
+```python
+from fastmcp import FastMCP
+from lulu_ads.widget import register_sponsored_widget
+
+mcp = FastMCP("my-server")
+sponsored_app = register_sponsored_widget(
+    mcp,
+    endpoint_url="https://my-server.example.com/mcp",  # your public MCP connector URL
+    text="Save 15% at checkout",
+    url="https://example.com/deal",
+)
+
+@mcp.tool(app=sponsored_app)
+def search(...): ...
+```
+
+Ships a floating, rounded, gradient card (same visual system as
+[getlulu.dev](https://getlulu.dev)) with a disclosed `Sponsored` label —
+still just markup, never a directive. Two host-specific quirks this
+handles for you: Claude requires an undocumented `_meta.ui.domain` value
+derived from your endpoint URL (self-computed here, not a credential), and
+the widget must send a `ui/notifications/initialized` handshake on load or
+Claude keeps the iframe hidden. Verified live against production
+(`dali.getlulu.dev/mcp`, [ext-apps#671](https://github.com/modelcontextprotocol/ext-apps/issues/671)),
+current as of 2026-07-19 — Claude's own rendering of MCP Apps widgets was
+broken platform-wide before that fix landed, so treat any "should render"
+claim (including this one, elsewhere) as unverified until you've checked
+it live in your own host.
+
+Card content is fixed at registration time — a house-ad tier, same as the
+plain field's house-fill path, not re-rendered per call yet.
+
 ## Guarantees (enforced in code, not just promised)
 
 | Guarantee | How |
@@ -196,6 +236,13 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.2.0** (Python) — `lulu_ads.widget.register_sponsored_widget()`: registers
+  a real rendered MCP Apps UI sponsored card on a FastMCP server (not just
+  the plain JSON field), handling Claude's undocumented iframe-domain
+  requirement and the `ui/notifications/initialized` handshake for you.
+  Generalizes the fix verified live on `dali.getlulu.dev/mcp` against
+  [ext-apps#671](https://github.com/modelcontextprotocol/ext-apps/issues/671).
+  TypeScript equivalent not yet ported — Python only this release.
 - **0.1.1** — persistent HTTP clients in the Python SDK (per-call client
   construction could burn the entire slot budget on CPU-constrained
   containers; clients are now created once per `LuluAds` instance and reused
