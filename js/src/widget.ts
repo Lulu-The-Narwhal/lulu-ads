@@ -22,16 +22,28 @@
  *      postMessage on load. The host keeps the iframe reserved-but-hidden
  *      until it receives that message.
  *
+ * A third, easy to miss entirely because it fails silently: the widget
+ * iframe's own CSP only allows `img-src 'self' data: <resourceDomains>`
+ * (MCP Apps spec). Point `logo` at your own CDN and nothing in the
+ * registration flow tells you it's blocked -- the card just renders with no
+ * logo, forever, in every host, no console error to find. `logo` is fetched
+ * right here at registration time and inlined as a `data:` URI instead,
+ * which `img-src` always allows -- no `resourceDomains` config, no
+ * dependency on your logo's host staying reachable from the widget's
+ * sandbox. This is why `logo` takes a URL to fetch rather than a URL to
+ * embed directly, and why registration is async now.
+ *
  * Usage:
  *
  *   import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
  *   import { registerSponsoredWidget } from "lulu-ads/widget";
  *
  *   const server = new McpServer({ name: "my-server", version: "1.0.0" });
- *   const appMeta = registerSponsoredWidget(server, {
+ *   const appMeta = await registerSponsoredWidget(server, {
  *     endpointUrl: "https://my-server.example.com/mcp",
  *     text: "Save 15% at checkout",
  *     url: "https://example.com/deal",
+ *     logo: "https://example.com/logo.png", // optional; fetched + inlined
  *   });
  *
  *   server.registerTool("search", { ...appMeta }, handler);
@@ -45,6 +57,40 @@
 import { createHash } from "node:crypto";
 
 const DEFAULT_RESOURCE_URI = "ui://lulu-ads/sponsored.html";
+
+// Keeps the inlined data: URI (and the resource payload every client
+// downloads) small -- this renders at 28x28 in the card, never a full-size
+// asset. Raise only if you know your host's resource-size limits.
+const MAX_LOGO_BYTES = 200_000;
+const LOGO_FETCH_TIMEOUT_MS = 3_000;
+const ALLOWED_LOGO_CONTENT_TYPES = new Set([
+  "image/png", "image/jpeg", "image/jpg", "image/svg+xml", "image/webp", "image/gif",
+]);
+
+/** Downloads `logoUrl` and returns it as a `data:` URI, or null on any
+ * failure (bad status, wrong/missing content-type, oversized, network
+ * error, timeout) -- a broken logo must never break the widget or the
+ * server registering it, so this never throws. */
+export async function fetchLogoDataUri(logoUrl: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LOGO_FETCH_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(logoUrl, { signal: controller.signal, redirect: "follow" });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) return null;
+    const contentType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    if (!ALLOWED_LOGO_CONTENT_TYPES.has(contentType)) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > MAX_LOGO_BYTES) return null;
+    return `data:${contentType};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
 
 // Lulu brand tokens (ads-web/app/globals.css: --lulu-amber / -light / -dark)
 const ACCENT = "#E07A00";
@@ -73,6 +119,10 @@ export interface SponsoredWidgetOptions {
   url: string;
   label?: string;
   cta?: string;
+  /** Already-resolved `data:` URI -- see `fetchLogoDataUri` / `registerSponsoredWidget`'s
+   * `logo` option. A raw `https://` URL here would be silently dropped by the widget
+   * sandbox's CSP. */
+  logoDataUri?: string;
   accent?: string;
   accentLight?: string;
   accentDark?: string;
@@ -87,6 +137,7 @@ export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
     url,
     label = "Sponsored",
     cta = "Learn more →",
+    logoDataUri,
     accent = ACCENT,
     accentLight = ACCENT_LIGHT,
     accentDark = ACCENT_DARK,
@@ -95,6 +146,9 @@ export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
   const ctaHtml = escapeHtml(cta);
   const urlAttr = escapeHtml(url);
   const labelHtml = escapeHtml(label);
+  const logoHtml = logoDataUri
+    ? `<img class="logo" src="${escapeHtml(logoDataUri)}" alt="">`
+    : "";
 
   return `<!doctype html>
 <html><head><meta charset="utf-8">
@@ -114,6 +168,11 @@ export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
     font-size: 10px; font-weight: 800; letter-spacing: .09em;
     text-transform: uppercase; opacity: .92; margin-bottom: 5px;
   }
+  .row { display: flex; align-items: flex-start; gap: 10px; }
+  .logo {
+    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.9); object-fit: contain; padding: 2px;
+  }
   .text { font-size: 13px; line-height: 1.45; }
   a { color: #FFFFFF; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
   .footer {
@@ -127,7 +186,10 @@ export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
 <body>
   <div class="card">
     <div class="label">${labelHtml}</div>
-    <div class="text">${textHtml} <a href="${urlAttr}" target="_blank" rel="noopener">${ctaHtml}</a></div>
+    <div class="row">
+      ${logoHtml}
+      <div class="text">${textHtml} <a href="${urlAttr}" target="_blank" rel="noopener">${ctaHtml}</a></div>
+    </div>
     <div class="footer">Powered by <a href="https://getlulu.dev" target="_blank" rel="noopener">Lulu Ads</a></div>
   </div>
 <script>
@@ -177,8 +239,14 @@ type AnyServer = {
   registerResource: (name: string, uri: string, config: Record<string, unknown>, readCallback: (...args: any[]) => any) => unknown;
 };
 
-export interface RegisterSponsoredWidgetOptions extends SponsoredWidgetOptions {
+export interface RegisterSponsoredWidgetOptions extends Omit<SponsoredWidgetOptions, "logoDataUri"> {
   endpointUrl: string;
+  /** URL to fetch a brand mark from -- downloaded once, here, at
+   * registration time, and inlined into the widget as a `data:` URI (see
+   * the module docstring for why a raw remote URL would silently never
+   * render). A fetch failure just means no logo in the card, never a
+   * registration error. */
+  logo?: string;
   resourceUri?: string;
   visibility?: ("app" | "model")[];
 }
@@ -191,16 +259,17 @@ export interface SponsoredAppMeta {
  * server instance and returns the `_meta` to spread onto whichever tool(s)
  * should carry it:
  *
- *   const appMeta = registerSponsoredWidget(server, { endpointUrl, text, url });
+ *   const appMeta = await registerSponsoredWidget(server, { endpointUrl, text, url });
  *   server.registerTool("search", { ...appMeta }, handler);
  */
-export function registerSponsoredWidget(
+export async function registerSponsoredWidget(
   server: AnyServer,
   opts: RegisterSponsoredWidgetOptions
-): SponsoredAppMeta {
+): Promise<SponsoredAppMeta> {
   const uri = opts.resourceUri ?? DEFAULT_RESOURCE_URI;
   const domain = claudeAppsDomain(opts.endpointUrl);
-  const html = sponsoredWidgetHtml(opts);
+  const logoDataUri = opts.logo ? (await fetchLogoDataUri(opts.logo)) ?? undefined : undefined;
+  const html = sponsoredWidgetHtml({ ...opts, logoDataUri });
 
   server.registerResource(
     "sponsored_card",
