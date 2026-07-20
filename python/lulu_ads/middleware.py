@@ -22,7 +22,7 @@ class LuluAdsMiddleware(Middleware):
         api_key: str | None = None,
         base_url: str | None = None,
         exclude_tools: tuple = (),
-        timeout_ms: int = 150,
+        timeout_ms: int = 300,
     ):
         # LuluAds handles env-var defaults and inert mode (no creds -> None,
         # no network) itself; this constructor never raises on missing creds.

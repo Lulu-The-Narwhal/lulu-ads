@@ -2,10 +2,12 @@
 
 Hard guarantees, enforced here rather than documented:
 - never raises: any failure returns None
-- hard wall-clock timeout (default 800ms, or 3000ms when the call implies
-  server-side classification -- see _resolve_timeout_ms): a tool call can
+- hard wall-clock timeout, enforced once as a single outer deadline (never
+  also passed to httpx's own per-request timeout -- doing both used to race,
+  see _resolve_timeout_ms and sponsored_slot's _fetch): default 800ms, or
+  3000ms when the call implies server-side classification. A tool call can
   never hang on ads, in both the async (sponsored_slot) and sync
-  (sponsored_slot_sync) variants
+  (sponsored_slot_sync) variants.
 - the sponsored object always carries label="Sponsored" (FTC disclosure)
 - only allowlisted context keys leave the process; no PII fields exist
 This SDK ships data, never directives — nothing here instructs a model
@@ -30,9 +32,10 @@ _MAX_VALUE_LEN = 200
 #
 # _FAST_TIMEOUT_MS covers matching + network only. 150ms was already broken
 # for a cold connection alone (measured 2.46s cold vs ~150ms warm against
-# ads-server in production); 800ms clears a cold connection with real
-# margin while staying tight enough that a slow ads-server can't visibly
-# stall the caller's own tool call.
+# ads-server in production); load testing separately measured a steady
+# 155-215ms once the connection is warm. 800ms clears a cold connection
+# with real margin while staying tight enough that a slow ads-server can't
+# visibly stall the caller's own tool call.
 #
 # _CLASSIFY_TIMEOUT_MS covers matching + network + the server-side Gemini
 # hop, and only applies when that hop is actually going to run.
@@ -196,7 +199,15 @@ class LuluAds:
 
         async def _fetch():
             client = self._ensure_async_client()
-            r = await client.post(**self._request_args(context), timeout=effective_timeout_ms / 1000)
+            # Do NOT also pass timeout_ms here: httpx's own per-request
+            # timeout and asyncio.wait_for's outer deadline below used to
+            # both fire at the same instant. Whichever won the race cancelled
+            # the request mid-flight, which corrupts the pooled connection
+            # and forces the NEXT call to reconnect cold too — a
+            # self-sustaining failure loop that never actually warms up.
+            # One deadline, enforced once, outside: httpx keeps its own
+            # generous client-level default (5.0s) as an inert backstop.
+            r = await client.post(**self._request_args(context))
             if r.status_code != 200:
                 return None
             return _parse(r.status_code, r.json() if r.content else None)
@@ -216,7 +227,9 @@ class LuluAds:
 
         def _fetch():
             client = self._ensure_sync_client()
-            r = client.post(**self._request_args(context), timeout=effective_timeout_ms / 1000)
+            # Same reasoning as the async path above: one deadline (the
+            # future.result() timeout below), not two racing ones.
+            r = client.post(**self._request_args(context))
             if r.status_code != 200:
                 return None
             return _parse(r.status_code, r.json() if r.content else None)

@@ -63,11 +63,15 @@ Missing or invalid `x-api-key`.
 
 **Timing**
 
-The backend targets well under 150ms so the default SDK timeout (150ms wall
-clock, covering connect + request + parse) rarely fires under normal
-conditions. Every client in this repo enforces that 150ms cap itself and
-returns `None`/`null` on timeout — the contract does not depend on the
-server always being fast, only on the client never waiting past the cap.
+The default SDK timeout is 300ms wall clock (covering connect + request +
+parse) — not a round guess. Measured real end-to-end latency against
+production `ads.getlulu.dev`, with a warmed, pooled client (the way every
+client in this repo is built to be used), was ~165–215ms; 300ms is that
+floor plus real margin for publishers on slower network paths. Every
+client in this repo enforces that cap itself and returns `None`/`null` on
+timeout — the contract does not depend on the server always being fast,
+only on the client never waiting past the cap. Pass `timeout_ms`
+(`timeoutMs` in TS) to tighten or loosen it for your own network path.
 
 ## `GET /c/{token}`
 

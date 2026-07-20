@@ -2,8 +2,15 @@
  * Lulu Ads client. Guarantees enforced in code: never throws, hard timeout
  * (default 800ms, or 3000ms when the call implies server-side
  * classification -- see resolveTimeoutMs), label always "Sponsored",
- * context keys allowlisted.
- * Ships data, never directives — the host decides whether to render.
+ * context keys allowlisted. Ships data, never directives — the host
+ * decides whether to render.
+ *
+ * 800ms isn't a round guess: load testing measured a steady 155-215ms
+ * once the connection is warm against production ads.getlulu.dev; 800ms
+ * is that floor plus real margin for slower network paths and a cold
+ * first connection. The higher 3000ms only applies when ads-server may
+ * run its own server-side Gemini classification call (see
+ * ads-server/app/classify.py) -- see resolveTimeoutMs below.
  *
  * Credentials resolve from opts first, then env vars
  * (LULU_ADS_PUBLISHER_ID, LULU_ADS_API_KEY, LULU_ADS_BASE_URL). If
