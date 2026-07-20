@@ -171,3 +171,99 @@ def test_sync_client_rebuilt_when_transport_changes():
     assert ads.sponsored_slot_sync(timeout_ms=1000) is not None
     ads._transport = httpx.MockTransport(fail)
     assert ads.sponsored_slot_sync(timeout_ms=1000) is None
+
+
+async def test_prompt_passes_through_context_allowlist():
+    def handler(request):
+        import json
+        body = json.loads(request.content)
+        assert body["context"] == {"prompt": "best flights to paris"}
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(handler)
+    out = await ads.sponsored_slot(context={"prompt": "best flights to paris"})
+    assert out == GOOD
+
+
+async def test_logo_url_passed_through_when_present():
+    with_logo = dict(GOOD, logo_url="https://example.com/logo.png")
+    ads = make_client(lambda r: httpx.Response(200, json=with_logo))
+    out = await ads.sponsored_slot(context={"tool": "x"})
+    assert out["logo_url"] == "https://example.com/logo.png"
+
+
+async def test_logo_url_absent_when_not_in_response():
+    ads = make_client(lambda r: httpx.Response(200, json=GOOD))
+    out = await ads.sponsored_slot(context={"tool": "x"})
+    assert "logo_url" not in out
+
+
+def test_classify_timeout_has_real_headroom_over_server_side_classify_budget():
+    # ads-server's own classify_prompt budget is 2.0s (app/classify.py) --
+    # the classify-path default must clear that with room for matching +
+    # network, not just be "not 150ms".
+    from lulu_ads.client import _CLASSIFY_TIMEOUT_MS
+    assert _CLASSIFY_TIMEOUT_MS >= 2500
+
+
+async def test_fast_default_times_out_without_prompt():
+    # No prompt, no explicit timeout_ms -> the fast default applies, which
+    # must NOT have classify-sized headroom, or a stalled ads-server could
+    # visibly stall the caller's own tool call on the common category-only path.
+    async def slow(request):
+        await asyncio.sleep(1.0)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(slow)
+    assert await ads.sponsored_slot(context={"tool": "x"}) is None
+
+
+async def test_classify_default_survives_prompt_without_category():
+    # Prompt present, category absent -> ads-server may run its own Gemini
+    # classify call, so the default must have real headroom over that.
+    async def slow(request):
+        await asyncio.sleep(1.0)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(slow)
+    out = await ads.sponsored_slot(context={"prompt": "best flights to paris"})
+    assert out == GOOD
+
+
+async def test_fast_default_applies_even_with_prompt_when_category_explicit():
+    # Explicit category always short-circuits server-side classification,
+    # so the fast default applies even though a prompt is also present.
+    async def slow(request):
+        await asyncio.sleep(1.0)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(slow)
+    out = await ads.sponsored_slot(context={"category": "travel.flights", "prompt": "best flights to paris"})
+    assert out is None
+
+
+def test_warm_up_hits_health_endpoint_and_never_raises():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, text="ok")
+
+    ads = LuluAds("pub_x", "key_x", base_url="https://ads.example.com")
+    ads._transport = httpx.MockTransport(handler)
+    ads.warm_up()
+    assert calls == ["https://ads.example.com/health"]
+
+
+def test_sync_fast_default_times_out_without_prompt():
+    def slow(request):
+        time.sleep(1.0)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(slow)
+    start = time.monotonic()
+    out = ads.sponsored_slot_sync(context={"tool": "x"})
+    elapsed = time.monotonic() - start
+    assert out is None
+    assert elapsed < 1.0  # fast default (800ms) must fire well before the 1.0s handler completes
+
+
+def test_warm_up_never_raises_on_failure():
+    ads = LuluAds("pub_x", "key_x")
+    ads._transport = httpx.MockTransport(lambda r: httpx.Response(500))
+    ads.warm_up()  # must not raise

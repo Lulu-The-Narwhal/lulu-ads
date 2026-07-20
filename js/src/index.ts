@@ -1,6 +1,8 @@
 /**
  * Lulu Ads client. Guarantees enforced in code: never throws, hard timeout
- * (default 150ms), label always "Sponsored", context keys allowlisted.
+ * (default 800ms, or 3000ms when the call implies server-side
+ * classification -- see resolveTimeoutMs), label always "Sponsored",
+ * context keys allowlisted.
  * Ships data, never directives — the host decides whether to render.
  *
  * Credentials resolve from opts first, then env vars
@@ -12,10 +14,36 @@ export interface Sponsored {
   label: "Sponsored";
   text: string;
   url: string;
+  logoUrl?: string;
 }
 
-const ALLOWED_CONTEXT_KEYS = new Set(["tool", "category", "query", "route", "locale", "country"]);
+const ALLOWED_CONTEXT_KEYS = new Set(["tool", "category", "query", "route", "locale", "country", "prompt"]);
 const MAX_VALUE_LEN = 200;
+// ads-server only classifies server-side (a real Gemini call on its own
+// 2.0s internal budget, see ads-server/app/classify.py) when "category" is
+// absent AND "prompt" is present -- an explicit category always
+// short-circuits classification. So the timeout is conditional on which
+// path a given call actually takes, rather than one flat number sized for
+// the slowest case: a category-only or context-free call never touches
+// Gemini server-side and shouldn't eat a 3s ceiling just because *some*
+// calls do.
+//
+// FAST_TIMEOUT_MS covers matching + network only. 150ms was already broken
+// for a cold connection alone (measured 2.46s cold vs ~150ms warm against
+// ads-server in production); 800ms clears a cold connection with real
+// margin while staying tight enough that a slow ads-server can't visibly
+// stall the caller's own tool call.
+//
+// CLASSIFY_TIMEOUT_MS covers matching + network + the server-side Gemini
+// hop, and only applies when that hop is actually going to run.
+const FAST_TIMEOUT_MS = 800;
+const CLASSIFY_TIMEOUT_MS = 3000;
+
+function resolveTimeoutMs(context: Record<string, unknown> | undefined, timeoutMs: number | undefined): number {
+  if (timeoutMs != null) return timeoutMs;
+  if (context?.prompt && !context?.category) return CLASSIFY_TIMEOUT_MS;
+  return FAST_TIMEOUT_MS;
+}
 
 function cleanContext(context?: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -64,14 +92,38 @@ export class LuluAds {
         method: "POST",
         headers: { "content-type": "application/json", "x-api-key": this.apiKey! },
         body: JSON.stringify({ context: cleanContext(opts?.context) }),
-        signal: AbortSignal.timeout(opts?.timeoutMs ?? 150),
+        signal: AbortSignal.timeout(resolveTimeoutMs(opts?.context, opts?.timeoutMs)),
       });
       if (res.status !== 200) return null;
-      const body = (await res.json()) as { text?: unknown; url?: unknown };
+      const body = (await res.json()) as { text?: unknown; url?: unknown; logo_url?: unknown };
       if (!body?.text || !body?.url) return null;
-      return { label: "Sponsored", text: String(body.text), url: String(body.url) };
+      const result: Sponsored = { label: "Sponsored", text: String(body.text), url: String(body.url) };
+      if (body.logo_url) result.logoUrl = String(body.logo_url);
+      return result;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Best-effort: pings ads-server's /health to pre-establish a warm
+   * connection before any real sponsoredSlot call happens. Not called
+   * automatically -- a real network request as a side effect of the
+   * constructor is surprising and untestable. Call this once yourself, at
+   * your own process startup (fire-and-forget, no need to await):
+   *
+   *   const client = new LuluAds({...});
+   *   client.warmUp();
+   *
+   * A slot request is often the first outbound call an integrator's
+   * process makes; the first request on a cold connection can take
+   * seconds (see DEFAULT_TIMEOUT_MS's comment). Never throws.
+   */
+  async warmUp(): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    } catch {
+      // best-effort
     }
   }
 }

@@ -107,3 +107,60 @@ test("env vars set → used as defaults, x-api-key from env", async () => {
   });
   expect(await new LuluAds().sponsoredSlot({ context: { tool: "x" } })).toEqual(GOOD);
 });
+
+test("prompt passes through the context allowlist", async () => {
+  mockFetch(async (_url, init) => {
+    expect(JSON.parse(init!.body as string).context).toEqual({ prompt: "best flights to paris" });
+    return new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  expect(await ads().sponsoredSlot({ context: { prompt: "best flights to paris" } })).toEqual(GOOD);
+});
+
+test("logoUrl present when the response has one", async () => {
+  mockFetch(async () => new Response(JSON.stringify({ ...GOOD, logo_url: "https://example.com/logo.png" }), { status: 200 }));
+  const out = await ads().sponsoredSlot({ context: { tool: "x" } });
+  expect(out?.logoUrl).toBe("https://example.com/logo.png");
+});
+
+test("logoUrl absent when the response has none", async () => {
+  mockFetch(async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const out = await ads().sponsoredSlot({ context: { tool: "x" } });
+  expect(out).not.toHaveProperty("logoUrl");
+});
+
+test("fast default times out without prompt", async () => {
+  mockFetch((_url, init) => new Promise((_resolve, reject) => {
+    setTimeout(() => reject(new DOMException("aborted", "AbortError")), 1000);
+    init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+  }) as Promise<Response>);
+  const start = Date.now();
+  const out = await ads().sponsoredSlot({ context: { tool: "x" } });
+  expect(out).toBeNull();
+  expect(Date.now() - start).toBeLessThan(1000);
+});
+
+test("classify default survives prompt without category", async () => {
+  mockFetch(async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const out = await ads().sponsoredSlot({ context: { prompt: "best flights to paris" } });
+  expect(out).toEqual(GOOD);
+});
+
+test("fast default applies even with prompt when category explicit", async () => {
+  mockFetch((_url, init) => new Promise((_resolve, reject) => {
+    init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+  }) as Promise<Response>);
+  const start = Date.now();
+  const out = await ads().sponsoredSlot({ context: { category: "travel.flights", prompt: "best flights to paris" } });
+  expect(out).toBeNull();
+  expect(Date.now() - start).toBeLessThan(1000);
+});
+
+test("warmUp hits /health and never throws on failure", async () => {
+  const calls: string[] = [];
+  mockFetch(async (url) => {
+    calls.push(String(url));
+    throw new TypeError("network down");
+  });
+  await expect(ads().warmUp()).resolves.toBeUndefined();
+  expect(calls).toEqual(["https://ads.getlulu.dev/health"]);
+});
