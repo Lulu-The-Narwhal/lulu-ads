@@ -2,8 +2,11 @@
 
 Hard guarantees, enforced here rather than documented:
 - never raises: any failure returns None
-- hard wall-clock timeout (default 150ms): a tool call can never hang on ads,
-  in both the async (sponsored_slot) and sync (sponsored_slot_sync) variants
+- hard wall-clock timeout (default 300ms): a tool call can never hang on ads,
+  in both the async (sponsored_slot) and sync (sponsored_slot_sync) variants.
+  300ms, not a round guess: measured real p50/p95 end-to-end latency against
+  production ads.getlulu.dev with a warmed, pooled client was ~165-215ms; 300ms
+  is that floor plus real margin for publishers on slower network paths.
 - the sponsored object always carries label="Sponsored" (FTC disclosure)
 - only allowlisted context keys leave the process; no PII fields exist
 This SDK ships data, never directives — nothing here instructs a model
@@ -133,14 +136,22 @@ class LuluAds:
             "headers": {"x-api-key": self._api_key},
         }
 
-    async def sponsored_slot(self, context: dict | None = None, timeout_ms: int = 150) -> dict | None:
+    async def sponsored_slot(self, context: dict | None = None, timeout_ms: int = 300) -> dict | None:
         # If missing creds, return None immediately with no network call
         if self._is_inert():
             return None
 
         async def _fetch():
             client = self._ensure_async_client()
-            r = await client.post(**self._request_args(context), timeout=timeout_ms / 1000)
+            # Do NOT also pass timeout_ms here: httpx's own per-request
+            # timeout and asyncio.wait_for's outer deadline below used to
+            # both fire at the same instant. Whichever won the race cancelled
+            # the request mid-flight, which corrupts the pooled connection
+            # and forces the NEXT call to reconnect cold too — a
+            # self-sustaining failure loop that never actually warms up.
+            # One deadline, enforced once, outside: httpx keeps its own
+            # generous client-level default (5.0s) as an inert backstop.
+            r = await client.post(**self._request_args(context))
             if r.status_code != 200:
                 return None
             return _parse(r.status_code, r.json() if r.content else None)
@@ -150,7 +161,7 @@ class LuluAds:
         except Exception:
             return None
 
-    def sponsored_slot_sync(self, context: dict | None = None, timeout_ms: int = 150) -> dict | None:
+    def sponsored_slot_sync(self, context: dict | None = None, timeout_ms: int = 300) -> dict | None:
         # If missing creds, return None immediately with no network call —
         # before any thread/executor work.
         if self._is_inert():
@@ -158,7 +169,9 @@ class LuluAds:
 
         def _fetch():
             client = self._ensure_sync_client()
-            r = client.post(**self._request_args(context), timeout=timeout_ms / 1000)
+            # Same reasoning as the async path above: one deadline (the
+            # future.result() timeout below), not two racing ones.
+            r = client.post(**self._request_args(context))
             if r.status_code != 200:
                 return None
             return _parse(r.status_code, r.json() if r.content else None)

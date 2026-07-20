@@ -1,7 +1,11 @@
 /**
  * Lulu Ads client. Guarantees enforced in code: never throws, hard timeout
- * (default 150ms), label always "Sponsored", context keys allowlisted.
+ * (default 300ms), label always "Sponsored", context keys allowlisted.
  * Ships data, never directives — the host decides whether to render.
+ *
+ * 300ms, not a round guess: measured real p50/p95 end-to-end latency against
+ * production ads.getlulu.dev with a warmed, pooled client was ~165-215ms;
+ * 300ms is that floor plus real margin for publishers on slower network paths.
  *
  * Credentials resolve from opts first, then env vars
  * (LULU_ADS_PUBLISHER_ID, LULU_ADS_API_KEY, LULU_ADS_BASE_URL). If
@@ -64,7 +68,7 @@ export class LuluAds {
         method: "POST",
         headers: { "content-type": "application/json", "x-api-key": this.apiKey! },
         body: JSON.stringify({ context: cleanContext(opts?.context) }),
-        signal: AbortSignal.timeout(opts?.timeoutMs ?? 150),
+        signal: AbortSignal.timeout(opts?.timeoutMs ?? 300),
       });
       if (res.status !== 200) return null;
       const body = (await res.json()) as { text?: unknown; url?: unknown };

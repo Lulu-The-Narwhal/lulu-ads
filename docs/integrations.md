@@ -77,7 +77,7 @@ its result. The field lands in two places — `structuredContent.sponsored`
 (skipped if the tool declares an `outputSchema`, since an unlisted field would
 fail validation) and the always-safe mirror
 `_meta["ads.getlulu.dev/sponsored"]`. Pass `{ excludeTools: [...] }` to skip
-specific tool names, or `{ timeoutMs }` to override the default 150ms cap.
+specific tool names, or `{ timeoutMs }` to override the default 300ms cap.
 
 Requires `@modelcontextprotocol/sdk >= 1.x` (1.29.0 tested).
 
