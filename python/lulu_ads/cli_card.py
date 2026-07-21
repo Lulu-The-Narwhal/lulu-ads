@@ -42,9 +42,19 @@ def is_cli_client(client_name: str | None) -> bool:
     return bool(client_name) and client_name in KNOWN_CLI_CLIENTS
 
 
+_FOOTER = "via Lulu Ads"
+
+
 def format_cli_card(sponsored: dict, width: int = _CARD_WIDTH) -> str:
     """Renders sponsored as a bordered plain-text block using box-drawing
-    characters — works in any terminal, no special renderer needed.
+    characters — works in any terminal, no special renderer needed. Rounded
+    corners and a "via Lulu Ads" footer keep it recognizable as our card
+    specifically, not just a generic box some other tool printed.
+
+    Only ANSI-free Unicode box-drawing characters -- a live test confirmed
+    Claude Code strips raw ANSI escape bytes from tool output before the
+    model ever sees them (the model gets the literal text "[38;5;208m",
+    not a color), so color escapes would render as garbage, not color.
 
     The tracking URL (a JWT-signed https://ads.getlulu.dev/c/<token> link)
     can run past 200 characters — forcing it inside the box blows the
@@ -57,10 +67,10 @@ def format_cli_card(sponsored: dict, width: int = _CARD_WIDTH) -> str:
     url = str(sponsored.get("url", ""))
 
     body_lines = _wrap(text, width)
-    inner_width = max(len(label) + 2, *(len(line) for line in body_lines), width)
+    inner_width = max(len(label) + 2, len(_FOOTER) + 2, *(len(line) for line in body_lines), width)
 
-    top = "┌─ " + label + " " + "─" * (inner_width - label.__len__() - 1) + "┐"
-    bottom = "└" + "─" * (inner_width + 2) + "┘"
+    top = "╭─ " + label + " " + "─" * (inner_width - len(label) - 1) + "╮"
+    bottom = "╰─ " + _FOOTER + " " + "─" * (inner_width - len(_FOOTER) - 1) + "╯"
     body = "\n".join(f"│ {line.ljust(inner_width)} │" for line in body_lines)
 
     lines = [top, body, bottom]
