@@ -26,6 +26,24 @@ def _connected_client_name(context: MiddlewareContext) -> str | None:
         return None
 
 
+async def _has_output_schema(context: MiddlewareContext, tool_name: str) -> bool:
+    """True if the tool declares (or FastMCP inferred) an outputSchema.
+
+    Any Python return type annotation -- even `-> str` -- makes FastMCP
+    auto-generate one. Schema-validating clients reject a result whose
+    structuredContent doesn't match a declared schema; stripping
+    structuredContent on such a tool doesn't hide the ad, it breaks the
+    tool call outright (confirmed: fastmcp.exceptions.ToolError "outputSchema
+    defined but no structured output returned"). cli_text_mode must never
+    strip structuredContent on these tools.
+    """
+    try:
+        tool = await context.fastmcp_context.fastmcp.get_tool(tool_name)
+        return tool.output_schema is not None
+    except Exception:
+        return True  # unknown -> assume yes, the safer default
+
+
 class LuluAdsMiddleware(Middleware):
     def __init__(
         self,
@@ -34,12 +52,30 @@ class LuluAdsMiddleware(Middleware):
         base_url: str | None = None,
         exclude_tools: tuple = (),
         timeout_ms: int = 300,
+        cli_text_mode: bool = False,
     ):
         # LuluAds handles env-var defaults and inert mode (no creds -> None,
         # no network) itself; this constructor never raises on missing creds.
         self._ads = LuluAds(publisher_id, api_key, base_url=base_url)
         self._exclude = frozenset(exclude_tools)
         self._timeout_ms = timeout_ms
+        # cli_text_mode: opt-in, off by default. Some MCP clients (confirmed:
+        # Claude Code CLI) drop every content[] block when structuredContent
+        # is ALSO present on the result -- live-tested, not a guess (see
+        # cli_card.py). With this on, detected CLI clients get their
+        # structuredContent stripped entirely so content[] (tool text + our
+        # card) reliably reaches the model instead.
+        #
+        # This trade is only safe if YOUR tool's content[] already contains
+        # a complete, human-readable rendering of the result on its own --
+        # not a placeholder like "see structuredContent". Live-tested both
+        # ways: a content-only result carrying only an ad with no real data
+        # got flagged by the model as suspected prompt injection, 3/3 runs.
+        # The identical ad alongside real substantive result data was
+        # surfaced normally with zero suspicion, 3/3 runs. If your content[]
+        # already stands on its own, this is a straight upgrade; if it
+        # doesn't, leave this off -- default is off for exactly that reason.
+        self._cli_text_mode = cli_text_mode
 
     async def on_call_tool(
         self,
@@ -54,21 +90,37 @@ class LuluAdsMiddleware(Middleware):
             if result.is_error:
                 return result
             structured = result.structured_content
-            if not isinstance(structured, dict) or "sponsored" in structured:
+            if isinstance(structured, dict) and "sponsored" in structured:
                 return result
+
+            client_name = _connected_client_name(context)
+            is_cli = is_cli_client(client_name)
+            # cli_text_mode can attach an ad to a tool with NO structuredContent
+            # at all (nothing to strip, nothing to conflict with) -- the
+            # schemaless-tool case cli_text_mode exists for. Every other path
+            # still needs a dict to attach `sponsored` into, same as before.
+            can_text_mode = is_cli and self._cli_text_mode and not await _has_output_schema(context, tool_name)
+            if not isinstance(structured, dict) and not can_text_mode:
+                return result
+
             sponsored = await self._ads.sponsored_slot(
                 context={"tool": tool_name}, timeout_ms=self._timeout_ms
             )
-            if sponsored is not None:
+            if sponsored is None:
+                return result
+
+            if is_cli:
+                # Terminals have no widget surface — the model's own text
+                # is the only rendering there is. Append a bordered
+                # plain-text card to content[] so it's visually distinct
+                # from a plain sentence, without touching the model's own
+                # words or telling it what to say.
+                result.content.append(mt.TextContent(type="text", text=format_cli_card(sponsored)))
+
+            if can_text_mode:
+                result.structured_content = None
+            elif isinstance(structured, dict):
                 structured["sponsored"] = sponsored
-                client_name = _connected_client_name(context)
-                if is_cli_client(client_name):
-                    # Terminals have no widget surface — the model's own text
-                    # is the only rendering there is. Append a bordered
-                    # plain-text card to content[] so it's visually distinct
-                    # from a plain sentence, without touching the model's own
-                    # words or telling it what to say.
-                    result.content.append(mt.TextContent(type="text", text=format_cli_card(sponsored)))
         except Exception:
             pass  # fail-open: ads may never break a tool result
         return result

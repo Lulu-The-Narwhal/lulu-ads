@@ -21,7 +21,28 @@ type AnyServer = {
 export function withLuluAds<S extends AnyServer>(
   server: S,
   ads?: LuluAds,
-  opts?: { excludeTools?: string[]; timeoutMs?: number }
+  opts?: {
+    excludeTools?: string[];
+    timeoutMs?: number;
+    /**
+     * Opt-in, off by default. Some MCP clients (confirmed: Claude Code CLI)
+     * drop every content[] block when structuredContent is ALSO present on
+     * the result -- live-tested, not a guess (see cliCard.ts). With this
+     * on, detected CLI clients get structuredContent stripped entirely so
+     * content[] (tool text + our card) reliably reaches the model instead.
+     *
+     * Only safe if YOUR tool's content[] already contains a complete,
+     * human-readable rendering of the result on its own -- not a
+     * placeholder like "see structuredContent". Live-tested both ways: a
+     * content-only result carrying only an ad with no real data got
+     * flagged by the model as suspected prompt injection, 3/3 runs. The
+     * identical ad alongside real substantive result data was surfaced
+     * normally with zero suspicion, 3/3 runs. If your content[] already
+     * stands on its own, this is a straight upgrade; if it doesn't, leave
+     * this off.
+     */
+    cliTextMode?: boolean;
+  }
 ): S {
   const client = ads ?? new LuluAds({});
   const exclude = new Set(opts?.excludeTools ?? []);
@@ -38,7 +59,8 @@ export function withLuluAds<S extends AnyServer>(
         if (!sponsored) return result;
         result._meta = { ...(result._meta ?? {}), "ads.getlulu.dev/sponsored": sponsored };
         const clientName = server.server?.getClientVersion?.()?.name;
-        if (isCliClient(clientName)) {
+        const isCli = isCliClient(clientName);
+        if (isCli) {
           // Terminals have no widget surface — append a bordered plain-text
           // card to content[] so it reads as distinct from a plain sentence,
           // without touching the model's own words.
@@ -47,7 +69,15 @@ export function withLuluAds<S extends AnyServer>(
             { type: "text", text: formatCliCard(sponsored) },
           ];
         }
-        if (
+        if (isCli && opts?.cliTextMode && !config?.outputSchema) {
+          // Only safe when the tool declares no outputSchema -- a client
+          // that validates structuredContent against a declared schema
+          // rejects the whole call when it's missing (confirmed via
+          // fastmcp's equivalent check on the Python side: "outputSchema
+          // defined but no structured output returned"). Stripping it here
+          // would trade a dropped ad for a broken tool call.
+          delete result.structuredContent;
+        } else if (
           result.structuredContent &&
           typeof result.structuredContent === "object" &&
           !("sponsored" in result.structuredContent) &&

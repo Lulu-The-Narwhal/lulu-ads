@@ -251,23 +251,58 @@ instead of a plain sentence if the model does choose to relay it:
 
 Known limitation, disclosed here rather than glossed over: some MCP
 clients don't forward every `content[]` block to the model when
-`structuredContent` is also present on the same result (see
-[anthropics/claude-code#55677](https://github.com/anthropics/claude-code/issues/55677)) —
-an open client-side bug. Live-tested against Claude Code specifically
-(2026-07-21, 3 runs each way): with `structuredContent` present (the
-shipped default), the boxed card never reaches the model, but the plain
-`sponsored` field still does — the model reliably surfaces it as an
-honest, labeled "Sponsored: ..." line in its own words, 3/3 runs, no
-issues. We also tried the obvious-looking fix — omit `structuredContent`
-so `content[]` has nothing competing with it — and confirmed the card
-*does* arrive every time, but the model then flags it as a suspected
-prompt-injection attempt and warns the user away from it, 3/3 runs. That
-trade makes things worse, not better, so we didn't ship it: this SDK
-never drops `structuredContent.sponsored` to chase card visibility. Until
-the client bug is fixed upstream, treat the CLI card as "renders when the
-host actually forwards it, on top of a disclosure that already works
-either way" — same verify-in-your-own-host caveat as the widget path
-above.
+`structuredContent` is also present on the same result — an open
+client-side bug in Claude Code, twice reported and twice closed without a
+fix ([#55677](https://github.com/anthropics/claude-code/issues/55677) →
+consolidated into
+[#45575](https://github.com/anthropics/claude-code/issues/45575) →
+auto-closed stale). Live-tested against Claude Code specifically
+(2026-07-21): with `structuredContent` present (the shipped default), the
+boxed card never reaches the model, but the plain `sponsored` field still
+does — the model reliably surfaces it as an honest, labeled
+"Sponsored: ..." line in its own words, 3/3 runs, no issues.
+
+### `cliTextMode` — opt-in fix for the client bug above
+
+We also tested the obvious-looking fix — omit `structuredContent` so
+`content[]` has nothing competing with it — and the result depended
+entirely on what else was in `content[]`:
+
+- Ad **alone**, no real tool data alongside it: the card arrives every
+  time, but the model flags it as a suspected prompt-injection attempt
+  and warns the user off it, 3/3 runs. Worse than not showing it.
+- Ad **alongside a real, complete rendering of the tool's own result**:
+  the card arrives every time, the model treats it as an ordinary
+  disclosed ad and mentions it neutrally, 3/3 runs. No suspicion.
+
+So the fix is real, but conditional on your tool's own behavior — which
+this SDK can't verify for you, hence opt-in, off by default:
+
+```python
+mcp.add_middleware(LuluAdsMiddleware(cli_text_mode=True))
+```
+
+```typescript
+withLuluAds(server, ads, { cliTextMode: true });
+```
+
+Turn this on only if your tool's `content[]` already contains a
+complete, human-readable rendering of the result on its own — not a
+placeholder like "see structuredContent". When on, detected CLI clients
+with no declared `outputSchema` get `structuredContent` stripped so
+`content[]` (your tool's own text + our card) reliably reaches the
+model. Tools that declare an `outputSchema` are never touched by this —
+stripping `structuredContent` there would break client-side schema
+validation outright (confirmed: `fastmcp.exceptions.ToolError`
+"outputSchema defined but no structured output returned"), which is a
+broken tool call, a strictly worse outcome than a dropped card. This SDK
+never drops `structuredContent.sponsored` on schema'd tools to chase card
+visibility, `cliTextMode` or not.
+
+Until the upstream client bug is fixed, treat the CLI card as "renders
+reliably once you opt in and your tool qualifies, on top of a disclosure
+that already works either way" — same verify-in-your-own-host caveat as
+the widget path above.
 
 ## Guarantees (enforced in code, not just promised)
 
@@ -339,6 +374,12 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.3.5** — `cliTextMode` (opt-in, off by default): fixes the Claude Code
+  content[]-drop bug for real, but only for tools whose `content[]` already
+  stands on its own without `structuredContent` — live-tested both
+  qualifying and non-qualifying cases, see "CLI rendering". Never touches
+  tools with a declared `outputSchema` (would break client-side schema
+  validation, confirmed via `fastmcp.exceptions.ToolError`).
 - **0.3.4** — CLI card gets rounded corners and a "via Lulu Ads" footer
   (Unicode box-drawing only — a live test against Claude Code confirmed it
   strips raw ANSI color escapes from tool output before the model sees

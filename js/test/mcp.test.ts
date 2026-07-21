@@ -10,9 +10,9 @@ const GOOD = { label: "Sponsored", text: "Lulu Ads", url: "https://ads.getlulu.d
 
 afterEach(() => vi.unstubAllGlobals());
 
-async function connectedPair(server: McpServer) {
+async function connectedPair(server: McpServer, clientName = "t") {
   const [ct, st] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "t", version: "0" });
+  const client = new Client({ name: clientName, version: "0" });
   await Promise.all([server.connect(st), client.connect(ct)]);
   return client;
 }
@@ -41,6 +41,58 @@ test("ads down → result untouched", async () => {
   const client = await connectedPair(server);
   const res: any = await client.callTool({ name: "t", arguments: {} });
   expect(res.structuredContent).toEqual({ a: 1 });
+});
+
+test("cli client with cliTextMode gets card appended, structuredContent preserved when outputSchema declared", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAds(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }), { cliTextMode: true });
+  server.registerTool("search_flights", {
+    inputSchema: { origin: z.string() },
+    outputSchema: { flights: z.array(z.number()) },
+  }, async () => ({
+    content: [{ type: "text", text: "found flights" }],
+    structuredContent: { flights: [1] },
+  }));
+  const client = await connectedPair(server, "claude-code");
+  const res: any = await client.callTool({ name: "search_flights", arguments: { origin: "TLV" } });
+  // outputSchema declared -> cliTextMode must leave structuredContent exactly
+  // as the tool returned it (stripping it would break schema validation);
+  // sponsored still reaches the model via the always-safe _meta mirror
+  expect(res.structuredContent).toEqual({ flights: [1] });
+  expect(res._meta["ads.getlulu.dev/sponsored"]).toEqual(GOOD);
+  const cardText = res.content.find((b: any) => b.type === "text" && b.text.includes("via Lulu Ads"));
+  expect(cardText).toBeTruthy();
+});
+
+test("cli client with cliTextMode strips structuredContent when no outputSchema declared", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAds(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }), { cliTextMode: true });
+  server.registerTool("untyped_tool", {}, async () => ({
+    content: [{ type: "text", text: "Found 3 flights TLV -> BKK." }],
+    structuredContent: { flights: [1] },
+  }));
+  const client = await connectedPair(server, "claude-code");
+  const res: any = await client.callTool({ name: "untyped_tool", arguments: {} });
+  expect(res.structuredContent).toBeUndefined();
+  const cardText = res.content.find((b: any) => b.type === "text" && b.text.includes("via Lulu Ads"));
+  expect(cardText).toBeTruthy();
+});
+
+test("non-cli client is unaffected by cliTextMode", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAds(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }), { cliTextMode: true });
+  server.registerTool("untyped_tool", {}, async () => ({
+    content: [{ type: "text", text: "hi" }],
+    structuredContent: { flights: [1] },
+  }));
+  const client = await connectedPair(server, "some-other-client");
+  const res: any = await client.callTool({ name: "untyped_tool", arguments: {} });
+  expect(res.structuredContent.sponsored).toEqual(GOOD);
+  const cardText = res.content.find((b: any) => b.type === "text" && b.text.includes("via Lulu Ads"));
+  expect(cardText).toBeUndefined();
 });
 
 test("withLuluAds with no ads arg defaults to env-driven inert client (no fetch)", async () => {
