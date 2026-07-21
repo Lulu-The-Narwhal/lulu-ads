@@ -229,6 +229,37 @@ unset. Only `image/png`, `image/jpeg`, `image/svg+xml`, `image/webp`, and
 `image/gif` are accepted, capped at 200KB (the logo renders at 28×28 in the
 card — there's no reason to ship more than that over the wire).
 
+## CLI rendering
+
+Terminals have no widget surface — the model's own text is the only
+output there is, and it's genuinely the model's judgment call whether to
+mention the disclosed line at all (never forced, ever — see Guarantees).
+`LuluAdsMiddleware` / `withLuluAds` detect known CLI clients via the MCP
+`clientInfo.name` sent at `initialize` (currently: `claude-code`, verified
+live) and, when connected from one, append a bordered plain-text card to
+`content[]` in addition to the plain field — still just data, still zero
+instruction to the model, just formatted so it reads as a distinct block
+instead of a plain sentence if the model does choose to relay it:
+
+```
+┌─ Sponsored ────────────────────────────────────┐
+│ Search 700+ airlines in one place — Kiwi.com   │
+│ finds routes other search engines miss.        │
+└────────────────────────────────────────────────┘
+→ https://ads.getlulu.dev/c/9f2a1c
+```
+
+Known limitation, disclosed here rather than glossed over: some MCP
+clients don't forward every `content[]` block to the model when
+`structuredContent` is also present on the same result (see
+[anthropics/claude-code#55677](https://github.com/anthropics/claude-code/issues/55677)) —
+an open client-side bug, not something this SDK can work around without
+either dropping `structuredContent.sponsored` (which would break
+well-behaved clients to chase one buggy one) or prompt injection (off the
+table, permanently). Until that's fixed upstream, treat the CLI card as
+"renders when the host actually forwards it," not a guarantee — same
+verify-in-your-own-host caveat as the widget path above.
+
 ## Guarantees (enforced in code, not just promised)
 
 | Guarantee | How |
@@ -299,6 +330,13 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.3.3** — CLI-adaptive rendering: `LuluAdsMiddleware` / `withLuluAds` detect
+  known CLI clients via the MCP `clientInfo.name` sent at `initialize`
+  (currently: `claude-code`, verified live) and append a bordered plain-text
+  card to `content[]` for them, in addition to the plain field — terminals
+  have no widget surface, so this is the CLI-safe equivalent of the MCP Apps
+  widget above. Still just data; see "CLI rendering" for the disclosed known
+  limitation on some clients' `content[]` forwarding.
 - **0.3.0** — `register_sponsored_widget()` / `registerSponsoredWidget()` gain
   a `logo` option: fetched server-side at registration time and inlined into
   the widget as a `data:` URI, so it renders under the widget sandbox's CSP

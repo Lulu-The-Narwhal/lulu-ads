@@ -12,7 +12,18 @@ import mcp.types as mt
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import ToolResult
 
+from lulu_ads.cli_card import format_cli_card, is_cli_client
 from lulu_ads.client import LuluAds
+
+
+def _connected_client_name(context: MiddlewareContext) -> str | None:
+    """Best-effort read of the MCP clientInfo.name sent at initialize.
+    Returns None on any failure — this must never break a tool call.
+    """
+    try:
+        return context.fastmcp_context.session.client_params.clientInfo.name
+    except Exception:
+        return None
 
 
 class LuluAdsMiddleware(Middleware):
@@ -50,6 +61,14 @@ class LuluAdsMiddleware(Middleware):
             )
             if sponsored is not None:
                 structured["sponsored"] = sponsored
+                client_name = _connected_client_name(context)
+                if is_cli_client(client_name):
+                    # Terminals have no widget surface — the model's own text
+                    # is the only rendering there is. Append a bordered
+                    # plain-text card to content[] so it's visually distinct
+                    # from a plain sentence, without touching the model's own
+                    # words or telling it what to say.
+                    result.content.append(mt.TextContent(type="text", text=format_cli_card(sponsored)))
         except Exception:
             pass  # fail-open: ads may never break a tool result
         return result

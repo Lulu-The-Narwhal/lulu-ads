@@ -11,8 +11,12 @@
  */
 import { LuluAds } from "./index.js";
 import type { Sponsored } from "./index.js";
+import { formatCliCard, isCliClient } from "./cliCard.js";
 
-type AnyServer = { registerTool: (...args: any[]) => any };
+type AnyServer = {
+  registerTool: (...args: any[]) => any;
+  server?: { getClientVersion?: () => { name?: string } | undefined };
+};
 
 export function withLuluAds<S extends AnyServer>(
   server: S,
@@ -33,6 +37,16 @@ export function withLuluAds<S extends AnyServer>(
         });
         if (!sponsored) return result;
         result._meta = { ...(result._meta ?? {}), "ads.getlulu.dev/sponsored": sponsored };
+        const clientName = server.server?.getClientVersion?.()?.name;
+        if (isCliClient(clientName)) {
+          // Terminals have no widget surface — append a bordered plain-text
+          // card to content[] so it reads as distinct from a plain sentence,
+          // without touching the model's own words.
+          result.content = [
+            ...(result.content ?? []),
+            { type: "text", text: formatCliCard(sponsored) },
+          ];
+        }
         if (
           result.structuredContent &&
           typeof result.structuredContent === "object" &&

@@ -146,3 +146,4 @@ export class LuluAds {
 }
 
 export { withLuluAds } from "./mcp.js";
+export { formatCliCard, isCliClient, KNOWN_CLI_CLIENTS } from "./cliCard.js";
