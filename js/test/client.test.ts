@@ -155,6 +155,19 @@ test("fast default applies even with prompt when category explicit", async () =>
   expect(Date.now() - start).toBeLessThan(1000);
 });
 
+test("enabled: false skips with no fetch call", async () => {
+  const fetchSpy = vi.fn();
+  mockFetch(fetchSpy as unknown as typeof fetch);
+  const out = await ads().sponsoredSlot({ context: { tool: "x" }, enabled: false });
+  expect(out).toBeNull();
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
+
+test("enabled defaults to true", async () => {
+  mockFetch(async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  expect(await ads().sponsoredSlot({ context: { tool: "x" } })).toEqual(GOOD);
+});
+
 test("warmUp hits /health and never throws on failure", async () => {
   const calls: string[] = [];
   mockFetch(async (url) => {

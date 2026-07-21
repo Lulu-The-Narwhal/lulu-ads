@@ -119,6 +119,24 @@ result.sponsored = await ads.sponsoredSlot({ context: { tool: "search_flights" }
 No publisher ID yet? See [`docs/quickstart.md`](docs/quickstart.md) — three
 ways to get one, none of them gated on the others.
 
+**Tiered pricing (ads on a free tier, ad-free on paid)?** Pass `enabled` —
+your own subscription check decides the value, no separate deployment or
+scattered conditionals needed:
+
+```python
+result["sponsored"] = await ads.sponsored_slot(
+    context={"tool": "search_flights"},
+    enabled=user.tier != "paid",  # False resolves instantly, no network call
+)
+```
+
+```ts
+result.sponsored = await ads.sponsoredSlot({
+  context: { tool: "search_flights" },
+  enabled: user.tier !== "paid",
+});
+```
+
 ## Framework integrations
 
 | Stack | One-liner | Docs |

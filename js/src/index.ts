@@ -91,7 +91,17 @@ export class LuluAds {
   async sponsoredSlot(opts?: {
     context?: Record<string, unknown>;
     timeoutMs?: number;
+    /**
+     * On/off switch for integrators running tiered pricing (a paid tier
+     * that's ad-free, a free/discounted tier that carries ads). Pass
+     * `enabled: false` and this resolves immediately with no fetch call,
+     * same as missing credentials. Your own subscription/tier check
+     * decides the value; defaults to true so existing callers are
+     * unaffected.
+     */
+    enabled?: boolean;
   }): Promise<Sponsored | null> {
+    if (opts?.enabled === false) return null;
     if (this.isInert()) return null;
 
     try {

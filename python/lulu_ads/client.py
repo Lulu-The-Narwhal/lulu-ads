@@ -190,7 +190,17 @@ class LuluAds:
             "headers": {"x-api-key": self._api_key},
         }
 
-    async def sponsored_slot(self, context: dict | None = None, timeout_ms: int | None = None) -> dict | None:
+    async def sponsored_slot(
+        self, context: dict | None = None, timeout_ms: int | None = None, enabled: bool = True
+    ) -> dict | None:
+        # `enabled` is the ads on/off switch for integrators running tiered
+        # pricing (e.g. a paid tier that's ad-free, a free/discounted tier
+        # that carries ads) -- pass enabled=False and this returns
+        # immediately with no network call, same as missing credentials.
+        # The caller's own subscription/tier check decides the value; nothing
+        # here needs to know about pricing tiers.
+        if not enabled:
+            return None
         # If missing creds, return None immediately with no network call
         if self._is_inert():
             return None
@@ -217,7 +227,12 @@ class LuluAds:
         except Exception:
             return None
 
-    def sponsored_slot_sync(self, context: dict | None = None, timeout_ms: int | None = None) -> dict | None:
+    def sponsored_slot_sync(
+        self, context: dict | None = None, timeout_ms: int | None = None, enabled: bool = True
+    ) -> dict | None:
+        # See sponsored_slot's docstring for what `enabled` is for.
+        if not enabled:
+            return None
         # If missing creds, return None immediately with no network call —
         # before any thread/executor work.
         if self._is_inert():

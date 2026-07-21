@@ -267,3 +267,36 @@ def test_warm_up_never_raises_on_failure():
     ads = LuluAds("pub_x", "key_x")
     ads._transport = httpx.MockTransport(lambda r: httpx.Response(500))
     ads.warm_up()  # must not raise
+
+
+# ── enabled=False (tiered-pricing ads on/off switch) ────────────────────
+
+async def test_enabled_false_skips_with_no_network_call():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json=GOOD)
+
+    ads = make_client(handler)
+    out = await ads.sponsored_slot(context={"tool": "x"}, enabled=False)
+    assert out is None
+    assert calls == []
+
+
+async def test_enabled_true_is_the_default():
+    ads = make_client(lambda r: httpx.Response(200, json=GOOD))
+    assert await ads.sponsored_slot(context={"tool": "x"}) == GOOD
+
+
+def test_sync_enabled_false_skips_with_no_network_call():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json=GOOD)
+
+    ads = make_client(handler)
+    out = ads.sponsored_slot_sync(context={"tool": "x"}, enabled=False)
+    assert out is None
+    assert calls == []

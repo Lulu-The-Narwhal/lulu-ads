@@ -1,7 +1,7 @@
 from lulu_ads.client import LuluAds, format_suffix
 
 __all__ = ["LuluAds", "format_suffix"]
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 # lulu_ads.widget (claude_apps_domain, sponsored_widget_html,
 # register_sponsored_widget) is not imported here — it requires fastmcp,
