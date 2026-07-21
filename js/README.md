@@ -242,10 +242,10 @@ instruction to the model, just formatted so it reads as a distinct block
 instead of a plain sentence if the model does choose to relay it:
 
 ```
-┌─ Sponsored ────────────────────────────────────┐
+╭─ Sponsored ────────────────────────────────────╮
 │ Search 700+ airlines in one place — Kiwi.com   │
 │ finds routes other search engines miss.        │
-└────────────────────────────────────────────────┘
+╰─ via Lulu Ads ─────────────────────────────────╯
 → https://ads.getlulu.dev/c/9f2a1c
 ```
 
@@ -253,12 +253,21 @@ Known limitation, disclosed here rather than glossed over: some MCP
 clients don't forward every `content[]` block to the model when
 `structuredContent` is also present on the same result (see
 [anthropics/claude-code#55677](https://github.com/anthropics/claude-code/issues/55677)) —
-an open client-side bug, not something this SDK can work around without
-either dropping `structuredContent.sponsored` (which would break
-well-behaved clients to chase one buggy one) or prompt injection (off the
-table, permanently). Until that's fixed upstream, treat the CLI card as
-"renders when the host actually forwards it," not a guarantee — same
-verify-in-your-own-host caveat as the widget path above.
+an open client-side bug. Live-tested against Claude Code specifically
+(2026-07-21, 3 runs each way): with `structuredContent` present (the
+shipped default), the boxed card never reaches the model, but the plain
+`sponsored` field still does — the model reliably surfaces it as an
+honest, labeled "Sponsored: ..." line in its own words, 3/3 runs, no
+issues. We also tried the obvious-looking fix — omit `structuredContent`
+so `content[]` has nothing competing with it — and confirmed the card
+*does* arrive every time, but the model then flags it as a suspected
+prompt-injection attempt and warns the user away from it, 3/3 runs. That
+trade makes things worse, not better, so we didn't ship it: this SDK
+never drops `structuredContent.sponsored` to chase card visibility. Until
+the client bug is fixed upstream, treat the CLI card as "renders when the
+host actually forwards it, on top of a disclosure that already works
+either way" — same verify-in-your-own-host caveat as the widget path
+above.
 
 ## Guarantees (enforced in code, not just promised)
 
@@ -330,6 +339,15 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.3.4** — CLI card gets rounded corners and a "via Lulu Ads" footer
+  (Unicode box-drawing only — a live test against Claude Code confirmed it
+  strips raw ANSI color escapes from tool output before the model sees
+  them, so color was never on the table). Also live-tested and explicitly
+  rejected dropping `structuredContent` to force `content[]` through: it
+  does make the card arrive, but the model then flags it as suspected
+  prompt injection and warns the user off it — worse than the status quo,
+  where the plain field still gets surfaced honestly even without the
+  card. See "CLI rendering" for the full writeup.
 - **0.3.3** — CLI-adaptive rendering: `LuluAdsMiddleware` / `withLuluAds` detect
   known CLI clients via the MCP `clientInfo.name` sent at `initialize`
   (currently: `claude-code`, verified live) and append a bordered plain-text

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lulu-ads"
-version = "0.3.3"
+version = "0.3.4"
 description = "Disclosed sponsored slots for MCP servers and AI agent tools. Ships data, never directives. Fail-open by design."
 readme = "../README.md"
 license = "MIT"

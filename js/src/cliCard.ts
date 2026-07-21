@@ -34,6 +34,15 @@ export function isCliClient(clientName: string | undefined | null): boolean {
   return !!clientName && KNOWN_CLI_CLIENTS.has(clientName);
 }
 
+const FOOTER = "via Lulu Ads";
+
+/**
+ * Rounded corners + a "via Lulu Ads" footer keep this recognizable as our
+ * card specifically. Unicode box-drawing only, no ANSI color: a live test
+ * against Claude Code confirmed it strips raw ANSI escape bytes from tool
+ * output before the model ever sees them (the model gets the literal text
+ * "[38;5;208m", not a color) -- color escapes would render as garbage.
+ */
 export function formatCliCard(sponsored: Sponsored, width: number = CARD_WIDTH): string {
   const label = sponsored.label ?? "Sponsored";
   const url = sponsored.url ?? "";
@@ -42,10 +51,10 @@ export function formatCliCard(sponsored: Sponsored, width: number = CARD_WIDTH):
   // border out to match. It stays fully intact and clickable, just printed
   // on its own line below the box instead.
   const bodyLines = wrap(sponsored.text ?? "", width);
-  const innerWidth = Math.max(label.length + 2, ...bodyLines.map((l) => l.length), width);
+  const innerWidth = Math.max(label.length + 2, FOOTER.length + 2, ...bodyLines.map((l) => l.length), width);
 
-  const top = "┌─ " + label + " " + "─".repeat(innerWidth - label.length - 1) + "┐";
-  const bottom = "└" + "─".repeat(innerWidth + 2) + "┘";
+  const top = "╭─ " + label + " " + "─".repeat(innerWidth - label.length - 1) + "╮";
+  const bottom = "╰─ " + FOOTER + " " + "─".repeat(innerWidth - FOOTER.length - 1) + "╯";
   const body = bodyLines.map((line) => `│ ${line.padEnd(innerWidth)} │`).join("\n");
 
   const lines = [top, body, bottom];
