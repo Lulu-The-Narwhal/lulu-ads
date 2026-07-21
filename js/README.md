@@ -148,23 +148,26 @@ sponsored_app = register_sponsored_widget(
     endpoint_url="https://my-server.example.com/mcp",  # your public MCP connector URL
     text="Save 15% at checkout",
     url="https://example.com/deal",
+    logo="https://example.com/logo.png",  # optional, see "Logos" below
 )
 
 @mcp.tool(app=sponsored_app)
 def search(...): ...
 ```
 
-Same helper, official TS SDK, for MCP servers built in Node instead of Python:
+Same helper, official TS SDK, for MCP servers built in Node instead of Python
+(registration is `async` — it may fetch a logo before returning):
 
 ```typescript
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerSponsoredWidget } from "lulu-ads/widget";
 
 const server = new McpServer({ name: "my-server", version: "1.0.0" });
-const appMeta = registerSponsoredWidget(server, {
+const appMeta = await registerSponsoredWidget(server, {
   endpointUrl: "https://my-server.example.com/mcp", // your public MCP connector URL
   text: "Save 15% at checkout",
   url: "https://example.com/deal",
+  logo: "https://example.com/logo.png", // optional, see "Logos" below
 });
 
 server.registerTool("search", { ...appMeta }, handler);
@@ -172,11 +175,13 @@ server.registerTool("search", { ...appMeta }, handler);
 
 Ships a floating, rounded, gradient card (same visual system as
 [getlulu.dev](https://getlulu.dev)) with a disclosed `Sponsored` label —
-still just markup, never a directive. Two host-specific quirks this
+still just markup, never a directive. Three host-specific quirks this
 handles for you: Claude requires an undocumented `_meta.ui.domain` value
-derived from your endpoint URL (self-computed here, not a credential), and
-the widget must send a `ui/notifications/initialized` handshake on load or
-Claude keeps the iframe hidden. Verified live against production
+derived from your endpoint URL (self-computed here, not a credential), the
+widget must send a `ui/notifications/initialized` handshake on load or
+Claude keeps the iframe hidden, and logos are inlined rather than linked
+(next section) so the widget sandbox's own CSP can't silently drop them.
+Verified live against production
 (`dali.getlulu.dev/mcp`, [ext-apps#671](https://github.com/modelcontextprotocol/ext-apps/issues/671)),
 current as of 2026-07-19 — Claude's own rendering of MCP Apps widgets was
 broken platform-wide before that fix landed, so treat any "should render"
@@ -185,6 +190,26 @@ it live in your own host.
 
 Card content is fixed at registration time — a house-ad tier, same as the
 plain field's house-fill path, not re-rendered per call yet.
+
+### Logos
+
+`logo` takes a URL to **fetch a brand mark from**, not a URL to embed
+directly — pass it and the SDK downloads the image right there at
+registration time and inlines it into the widget as a `data:` URI. This
+isn't incidental: the MCP Apps spec has hosts enforce `img-src 'self' data:
+<resourceDomains>` inside the widget's sandboxed iframe, and unless *you*
+separately declare your logo's domain in that resource's CSP config, a
+`<img src="https://your-cdn.com/logo.png">` gets silently dropped — no
+error anywhere, the card just renders with a blank slot forever, in every
+host. `data:` URIs are always allowed under that same rule, so fetching and
+inlining server-side sidesteps the whole failure mode — there is no CSP
+config for you to get right or forget.
+
+A bad or unreachable `logo` never breaks registration — it's skipped (with
+a warning log) and the card renders without one, same as leaving `logo`
+unset. Only `image/png`, `image/jpeg`, `image/svg+xml`, `image/webp`, and
+`image/gif` are accepted, capped at 200KB (the logo renders at 28×28 in the
+card — there's no reason to ship more than that over the wire).
 
 ## Guarantees (enforced in code, not just promised)
 
@@ -256,6 +281,15 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.3.0** — `register_sponsored_widget()` / `registerSponsoredWidget()` gain
+  a `logo` option: fetched server-side at registration time and inlined into
+  the widget as a `data:` URI, so it renders under the widget sandbox's CSP
+  (`img-src 'self' data: <resourceDomains>`) with no `resourceDomains` config
+  needed on your part — a raw remote logo URL would otherwise be silently
+  dropped, with no error anywhere. A bad/unreachable logo never breaks
+  registration; the card just renders without one. TypeScript's
+  `registerSponsoredWidget()` is now `async` (it may need to fetch the logo
+  before returning) — add `await` at existing call sites.
 - **0.2.0** — `register_sponsored_widget()` (Python: `lulu_ads.widget`, now also
   TypeScript: `lulu-ads/widget`, official MCP SDK): registers a real rendered
   MCP Apps UI sponsored card on your server (not just the plain JSON field),
