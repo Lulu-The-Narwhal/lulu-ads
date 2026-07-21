@@ -1,4 +1,5 @@
 import asyncio
+import threading
 
 import httpx
 import pytest
@@ -11,7 +12,11 @@ GOOD = {"label": "Sponsored", "text": "Lulu Ads", "url": "https://ads.getlulu.de
 
 
 def make_middleware(handler) -> LuluAdsMiddleware:
-    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x")
+    # auto_warm_up=False: a background thread already headed for the real
+    # network would otherwise race ._transport being set to the mock right
+    # after construction (exactly the hazard documented in middleware.py
+    # and warm_up()'s own docstring).
+    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
     mw._ads._transport = httpx.MockTransport(handler)
     return mw
 
@@ -53,7 +58,9 @@ async def test_excluded_tool_never_calls_ads():
         calls.append(1)
         return httpx.Response(200, json=GOOD)
 
-    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x", exclude_tools=("private_tool",))
+    mw = LuluAdsMiddleware(
+        publisher_id="pub_1", api_key="lk_x", exclude_tools=("private_tool",), auto_warm_up=False
+    )
     mw._ads._transport = httpx.MockTransport(handler)
     async with Client(make_server(mw)) as client:
         result = await client.call_tool("private_tool", {})
@@ -72,6 +79,24 @@ async def test_ads_backend_down_is_invisible():
     assert "sponsored" not in result.structured_content
 
 
+def test_auto_warm_up_fires_by_default(monkeypatch):
+    # Regression: the first real tool call on a freshly started server
+    # measured 804ms against the 800ms fast-path default -- a genuinely
+    # cold connection sits right at that ceiling, not comfortably under
+    # it. Zero-config warm-up on construction is what closes that gap.
+    fired = threading.Event()
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: fired.set())
+    LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x")
+    assert fired.wait(timeout=1.0), "warm_up() was not called from a background thread"
+
+
+def test_auto_warm_up_false_never_fires(monkeypatch):
+    fired = threading.Event()
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: fired.set())
+    LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
+    assert not fired.wait(timeout=0.2)
+
+
 def test_default_timeout_is_not_a_hardcoded_number():
     # Regression: this used to default to 300, hardcoded here rather than
     # deferring to client.py's own conditional 800ms/3000ms default. Found
@@ -80,7 +105,7 @@ def test_default_timeout_is_not_a_hardcoded_number():
     # no margin -- every test below uses an instant MockTransport, which
     # is exactly why a real-latency timeout bug like this can ship
     # unnoticed through a fully green mocked suite.
-    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x")
+    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
     assert mw._timeout_ms is None
 
 
@@ -105,7 +130,7 @@ async def test_no_args_no_env_is_inert(monkeypatch):
     monkeypatch.delenv("LULU_ADS_API_KEY", raising=False)
     monkeypatch.delenv("LULU_ADS_BASE_URL", raising=False)
 
-    mw = LuluAdsMiddleware()
+    mw = LuluAdsMiddleware(auto_warm_up=False)
     async with Client(make_server(mw)) as client:
         result = await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
     assert result.structured_content == {"flights": [{"price": 520}]}
