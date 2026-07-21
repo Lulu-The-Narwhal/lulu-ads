@@ -374,12 +374,23 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
-- **0.3.5** — `cliTextMode` (opt-in, off by default): fixes the Claude Code
+- **0.3.7** — `cliTextMode` (opt-in, off by default): fixes the Claude Code
   content[]-drop bug for real, but only for tools whose `content[]` already
   stands on its own without `structuredContent` — live-tested both
   qualifying and non-qualifying cases, see "CLI rendering". Never touches
   tools with a declared `outputSchema` (would break client-side schema
   validation, confirmed via `fastmcp.exceptions.ToolError`).
+- **0.3.6** — automatic connection warm-up on `LuluAdsMiddleware` construction
+  (`auto_warm_up`, on by default): a genuinely cold first tool call measured
+  804ms against the 800ms fast-path default — right at the ceiling, not
+  under it. `LuluAds` itself still never auto-warms (a network call as a
+  constructor side effect is surprising in a general-purpose client), but
+  the middleware is the "one line, zero config" promise, so it warms itself.
+- **0.3.5** — fixed a hardcoded 300ms default `timeout_ms` on
+  `LuluAdsMiddleware` that silently dropped real, fillable ads on real
+  network latency — every test in the suite used an instant mock transport,
+  which is exactly why this shipped unnoticed. Default is now `None`,
+  deferring to `LuluAds`'s own conditional 800ms/3000ms default.
 - **0.3.4** — CLI card gets rounded corners and a "via Lulu Ads" footer
   (Unicode box-drawing only — a live test against Claude Code confirmed it
   strips raw ANSI color escapes from tool output before the model sees

@@ -8,6 +8,8 @@ and never able to break the tool: any ads failure (missing credentials,
 network error, timeout, malformed response) leaves the result exactly as the
 tool returned it.
 """
+import threading
+
 import mcp.types as mt
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import ToolResult
@@ -51,11 +53,21 @@ class LuluAdsMiddleware(Middleware):
         api_key: str | None = None,
         base_url: str | None = None,
         exclude_tools: tuple = (),
-        timeout_ms: int = 300,
+        timeout_ms: int | None = None,
         cli_text_mode: bool = False,
+        auto_warm_up: bool = True,
     ):
         # LuluAds handles env-var defaults and inert mode (no creds -> None,
         # no network) itself; this constructor never raises on missing creds.
+        #
+        # timeout_ms defaults to None (client.py's own conditional
+        # 800ms/3000ms default), not a fixed number -- a hardcoded 300ms
+        # here was found live (not in this file's own mocked tests, which
+        # respond instantly and can never catch this) to fail consistently
+        # against a real cold ads-server call. Every test in this file uses
+        # an instant MockTransport, which is exactly why this shipped
+        # unnoticed -- mocked tests can prove correctness, never prove a
+        # timeout is actually sufficient for real latency.
         self._ads = LuluAds(publisher_id, api_key, base_url=base_url)
         self._exclude = frozenset(exclude_tools)
         self._timeout_ms = timeout_ms
@@ -76,6 +88,24 @@ class LuluAdsMiddleware(Middleware):
         # already stands on its own, this is a straight upgrade; if it
         # doesn't, leave this off -- default is off for exactly that reason.
         self._cli_text_mode = cli_text_mode
+
+        # Fire-and-forget warm-up: found live, first real tool call on a
+        # freshly started server measured 804ms against the 800ms
+        # fast-path default -- a genuinely cold connection (fresh TLS/DNS)
+        # sits right at that ceiling, not comfortably under it. A raw
+        # LuluAds client deliberately never auto-warms (a real network call
+        # as a __init__ side effect is surprising in a general-purpose
+        # client used in test-sensitive contexts) -- but this middleware
+        # IS the "one line, zero config" promise itself, so warming here is
+        # the one place doing it automatically is the right default rather
+        # than quietly undercutting that promise on every server's very
+        # first real request. auto_warm_up=False exists for exactly the
+        # case warm_up()'s own docstring warns about: a test setting
+        # ._transport right after construction (this file's own
+        # make_middleware() helper) would otherwise race a background
+        # thread already headed for the real network.
+        if auto_warm_up:
+            threading.Thread(target=self._ads.warm_up, daemon=True).start()
 
     async def on_call_tool(
         self,
