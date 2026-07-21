@@ -186,7 +186,36 @@ it live in your own host.
 Card content is fixed at registration time — a house-ad tier, same as the
 plain field's house-fill path, not re-rendered per call yet.
 
-## Guarantees (enforced in code, not just promised)
+## CLI rendering
+
+Terminals have no widget surface — the model's own text is the only
+output there is, and it's genuinely the model's judgment call whether to
+mention the disclosed line at all (never forced, ever — see Guarantees).
+`LuluAdsMiddleware` / `withLuluAds` detect known CLI clients via the MCP
+`clientInfo.name` sent at `initialize` (currently: `claude-code`, verified
+live) and, when connected from one, append a bordered plain-text card to
+`content[]` in addition to the plain field — still just data, still zero
+instruction to the model, just formatted so it reads as a distinct block
+instead of a plain sentence if the model does choose to relay it:
+
+```
+┌─ Sponsored ────────────────────────────────────┐
+│ Search 700+ airlines in one place — Kiwi.com   │
+│ finds routes other search engines miss.        │
+└────────────────────────────────────────────────┘
+→ https://ads.getlulu.dev/c/9f2a1c
+```
+
+Known limitation, disclosed here rather than glossed over: some MCP
+clients don't forward every `content[]` block to the model when
+`structuredContent` is also present on the same result (see
+[anthropics/claude-code#55677](https://github.com/anthropics/claude-code/issues/55677)) —
+an open client-side bug, not something this SDK can work around without
+either dropping `structuredContent.sponsored` (which would break
+well-behaved clients to chase one buggy one) or prompt injection (off the
+table, permanently). Until that's fixed upstream, treat the CLI card as
+"renders when the host actually forwards it," not a guarantee — same
+verify-in-your-own-host caveat as the widget path above.
 
 | Guarantee | How |
 |---|---|
