@@ -2,11 +2,12 @@
 
 Hard guarantees, enforced here rather than documented:
 - never raises: any failure returns None
-- hard wall-clock timeout (default 300ms): a tool call can never hang on ads,
-  in both the async (sponsored_slot) and sync (sponsored_slot_sync) variants.
-  300ms, not a round guess: measured real p50/p95 end-to-end latency against
-  production ads.getlulu.dev with a warmed, pooled client was ~165-215ms; 300ms
-  is that floor plus real margin for publishers on slower network paths.
+- hard wall-clock timeout, enforced once as a single outer deadline (never
+  also passed to httpx's own per-request timeout -- doing both used to race,
+  see _resolve_timeout_ms and sponsored_slot's _fetch): default 800ms, or
+  3000ms when the call implies server-side classification. A tool call can
+  never hang on ads, in both the async (sponsored_slot) and sync
+  (sponsored_slot_sync) variants.
 - the sponsored object always carries label="Sponsored" (FTC disclosure)
 - only allowlisted context keys leave the process; no PII fields exist
 This SDK ships data, never directives — nothing here instructs a model
@@ -19,8 +20,35 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 import httpx
 
-_ALLOWED_CONTEXT_KEYS = frozenset({"tool", "category", "query", "route", "locale", "country"})
+_ALLOWED_CONTEXT_KEYS = frozenset({"tool", "category", "query", "route", "locale", "country", "prompt"})
 _MAX_VALUE_LEN = 200
+# ads-server only classifies server-side (a real Gemini call on its own 2.0s
+# internal budget, see ads-server/app/classify.py) when "category" is absent
+# AND "prompt" is present -- an explicit category always short-circuits
+# classification. So the wire-level default is conditional on which path a
+# given call actually takes, rather than one flat number sized for the
+# slowest case: a category-only or context-free call never touches Gemini
+# server-side and shouldn't eat a 3s ceiling just because *some* calls do.
+#
+# _FAST_TIMEOUT_MS covers matching + network only. 150ms was already broken
+# for a cold connection alone (measured 2.46s cold vs ~150ms warm against
+# ads-server in production); load testing separately measured a steady
+# 155-215ms once the connection is warm. 800ms clears a cold connection
+# with real margin while staying tight enough that a slow ads-server can't
+# visibly stall the caller's own tool call.
+#
+# _CLASSIFY_TIMEOUT_MS covers matching + network + the server-side Gemini
+# hop, and only applies when that hop is actually going to run.
+_FAST_TIMEOUT_MS = 800
+_CLASSIFY_TIMEOUT_MS = 3000
+
+
+def _resolve_timeout_ms(context: dict | None, timeout_ms: int | None) -> int:
+    if timeout_ms is not None:
+        return timeout_ms
+    if isinstance(context, dict) and context.get("prompt") and not context.get("category"):
+        return _CLASSIFY_TIMEOUT_MS
+    return _FAST_TIMEOUT_MS
 
 # Lazily-created, module-level executor for sponsored_slot_sync. httpx.Client's
 # `timeout=` is per-phase (connect/read/write/pool), not a total wall-clock cap,
@@ -72,7 +100,10 @@ def _parse(status_code: int, json_body) -> dict | None:
     text, url = json_body.get("text"), json_body.get("url")
     if not text or not url:
         return None
-    return {"label": "Sponsored", "text": str(text), "url": str(url)}
+    result = {"label": "Sponsored", "text": str(text), "url": str(url)}
+    if json_body.get("logo_url"):
+        result["logo_url"] = str(json_body["logo_url"])
+    return result
 
 
 class LuluAds:
@@ -129,6 +160,29 @@ class LuluAds:
         """Check if client has minimal creds to make requests."""
         return not self._publisher_id or not self._api_key
 
+    def warm_up(self) -> None:
+        """Best-effort: pings ads-server's /health to pre-establish a warm
+        TLS connection before any real sponsored_slot call happens. Not
+        called automatically -- firing a real network request as a side
+        effect of __init__ is surprising and untestable (a test setting
+        ._transport right after construction, the normal pattern in this
+        SDK's own test suite, would otherwise race a background thread
+        already using the real network). Call this once yourself, in a
+        background thread, at your own process startup:
+
+            client = LuluAds(...)
+            threading.Thread(target=client.warm_up, daemon=True).start()
+
+        A slot request is often the first outbound call an integrator's
+        process makes; the first request on a cold connection can take
+        seconds (see _DEFAULT_TIMEOUT_MS's docstring). Never raises.
+        """
+        try:
+            client = self._ensure_sync_client()
+            client.get(f"{self._base_url}/health", timeout=5.0)
+        except Exception:
+            pass
+
     def _request_args(self, context: dict | None) -> dict:
         return {
             "url": f"{self._base_url}/slot",
@@ -136,10 +190,22 @@ class LuluAds:
             "headers": {"x-api-key": self._api_key},
         }
 
-    async def sponsored_slot(self, context: dict | None = None, timeout_ms: int = 300) -> dict | None:
+    async def sponsored_slot(
+        self, context: dict | None = None, timeout_ms: int | None = None, enabled: bool = True
+    ) -> dict | None:
+        # `enabled` is the ads on/off switch for integrators running tiered
+        # pricing (e.g. a paid tier that's ad-free, a free/discounted tier
+        # that carries ads) -- pass enabled=False and this returns
+        # immediately with no network call, same as missing credentials.
+        # The caller's own subscription/tier check decides the value; nothing
+        # here needs to know about pricing tiers.
+        if not enabled:
+            return None
         # If missing creds, return None immediately with no network call
         if self._is_inert():
             return None
+
+        effective_timeout_ms = _resolve_timeout_ms(context, timeout_ms)
 
         async def _fetch():
             client = self._ensure_async_client()
@@ -157,15 +223,22 @@ class LuluAds:
             return _parse(r.status_code, r.json() if r.content else None)
 
         try:
-            return await asyncio.wait_for(_fetch(), timeout=timeout_ms / 1000)
+            return await asyncio.wait_for(_fetch(), timeout=effective_timeout_ms / 1000)
         except Exception:
             return None
 
-    def sponsored_slot_sync(self, context: dict | None = None, timeout_ms: int = 300) -> dict | None:
+    def sponsored_slot_sync(
+        self, context: dict | None = None, timeout_ms: int | None = None, enabled: bool = True
+    ) -> dict | None:
+        # See sponsored_slot's docstring for what `enabled` is for.
+        if not enabled:
+            return None
         # If missing creds, return None immediately with no network call —
         # before any thread/executor work.
         if self._is_inert():
             return None
+
+        effective_timeout_ms = _resolve_timeout_ms(context, timeout_ms)
 
         def _fetch():
             client = self._ensure_sync_client()
@@ -178,7 +251,7 @@ class LuluAds:
 
         try:
             future = _get_executor().submit(_fetch)
-            return future.result(timeout=timeout_ms / 1000)
+            return future.result(timeout=effective_timeout_ms / 1000)
         except FutureTimeoutError:
             # Hard wall-clock cap hit. The worker thread is abandoned here — it
             # keeps running and is itself bounded by httpx's per-phase timeout,
