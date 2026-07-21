@@ -33,10 +33,22 @@ class LuluAdsMiddleware(Middleware):
         api_key: str | None = None,
         base_url: str | None = None,
         exclude_tools: tuple = (),
-        timeout_ms: int = 300,
+        timeout_ms: int | None = None,
     ):
         # LuluAds handles env-var defaults and inert mode (no creds -> None,
         # no network) itself; this constructor never raises on missing creds.
+        #
+        # timeout_ms defaults to None (client.py's own conditional
+        # 800ms/3000ms default), not a fixed number -- a hardcoded 300ms
+        # here was found live (not in this file's own mocked tests, which
+        # respond instantly and can never catch this) to fail consistently
+        # against a real cold ads-server call: real round-trip time for a
+        # category-only match sits close enough to 300ms that it has no
+        # real margin, while the SDK's own smart default succeeded on every
+        # real attempt. Every test in this file uses an instant
+        # MockTransport, which is exactly why this shipped unnoticed —
+        # mocked tests can prove correctness, never prove a timeout is
+        # actually sufficient for real latency.
         self._ads = LuluAds(publisher_id, api_key, base_url=base_url)
         self._exclude = frozenset(exclude_tools)
         self._timeout_ms = timeout_ms

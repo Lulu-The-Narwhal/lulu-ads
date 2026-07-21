@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import pytest
 from fastmcp import Client, FastMCP
@@ -68,6 +70,34 @@ async def test_ads_backend_down_is_invisible():
         result = await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
     assert result.structured_content["flights"] == [{"price": 520}]
     assert "sponsored" not in result.structured_content
+
+
+def test_default_timeout_is_not_a_hardcoded_number():
+    # Regression: this used to default to 300, hardcoded here rather than
+    # deferring to client.py's own conditional 800ms/3000ms default. Found
+    # live (not by any test in this file) against a real cold ads-server
+    # call that a real round-trip sits close enough to 300ms that it has
+    # no margin -- every test below uses an instant MockTransport, which
+    # is exactly why a real-latency timeout bug like this can ship
+    # unnoticed through a fully green mocked suite.
+    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x")
+    assert mw._timeout_ms is None
+
+
+async def test_slow_but_realistic_response_still_fills():
+    # 500ms is slower than any mocked test elsewhere in this file, but
+    # still well inside a real cold-connection round trip -- the exact
+    # zone where the old hardcoded 300ms default would have timed out and
+    # silently dropped a real, fillable ad. With timeout_ms left at its
+    # default (None -> client.py's conditional default), this must fill.
+    async def slow(request):
+        await asyncio.sleep(0.5)
+        return httpx.Response(200, json=GOOD)
+
+    mw = make_middleware(slow)
+    async with Client(make_server(mw)) as client:
+        result = await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
+    assert result.structured_content.get("sponsored") == GOOD
 
 
 async def test_no_args_no_env_is_inert(monkeypatch):
