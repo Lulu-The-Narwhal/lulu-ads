@@ -17,7 +17,7 @@
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
-`70% to publishers · CPA only · 300ms fail-open · 0 prompt injections, by design`
+`70% to publishers · CPA only · 800ms fail-open · 0 prompt injections, by design`
 
 </div>
 
@@ -273,7 +273,7 @@ above.
 
 | Guarantee | How |
 |---|---|
-| A tool call can never break because of ads | every failure path returns `None`/`null`; hard 300ms wall-clock timeout |
+| A tool call can never break because of ads | every failure path returns `None`/`null`; hard 800ms wall-clock timeout (3000ms when the call implies server-side classification) |
 | Always disclosed | `label: "Sponsored"` is set by the SDK, never sourced from the response body |
 | No prompt injection, ever | we ship a data field; there is no display instruction anywhere in the contract |
 | No PII leaves your server | `context` is filtered against an allowlist client-side, before any request is built |
@@ -310,7 +310,7 @@ tool call
 your tool's own result
    │
    ▼
-POST /slot  (300ms cap, allowlisted context only)
+POST /slot  (800ms cap — 3000ms when classifying a raw prompt — allowlisted context only)
    │
    ▼
 labeled data field  { label: "Sponsored", text, url }   ← attached, never injected
