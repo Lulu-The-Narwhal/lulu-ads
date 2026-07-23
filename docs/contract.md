@@ -78,16 +78,38 @@ on timeout — the contract does not depend on the server always being
 fast, only on the client never waiting past the cap. Pass `timeout_ms`
 (`timeoutMs` in TS) to tighten or loosen it for your own network path.
 
-**Automatic pre-connect.** The FastMCP middleware, the LangChain
-middleware, the CrewAI `install()` hook, and TypeScript's `withLuluAds`
-all fire the client's `warm_up()`/`warmUp()` in the background on
-construction by default (`auto_warm_up`/`autoWarmUp: false` to disable) —
-this is what actually closes most of the gap between the cold (2.46s) and
-warm (~200ms) numbers above for a real integrator, since it means the
-very first real tool call is far more likely to land on an already-warm
-connection. The base `LuluAds`/`new LuluAds` client itself does not
-auto-warm — call `warm_up()`/`warmUp()` yourself at process startup if
-you're using it directly without one of these adapters.
+**Automatic pre-connect.** All four adapters — the FastMCP middleware, the
+LangChain middleware, the CrewAI `install()` hook, and TypeScript's
+`withLuluAds` — auto-warm by default (`auto_warm_up`/`autoWarmUp: false`
+to disable). CrewAI and TypeScript have a single connection pool to warm,
+and they do it the simple way: firing the client's `warm_up()`/`warmUp()`
+in the background on construction (a daemon thread for CrewAI's Python
+client, an unawaited fire-and-forget promise for TypeScript — there's no
+thread concept in JS). FastMCP and LangChain do that too, but it only
+warms their *sync* pool — their real traffic goes
+through the `async` `sponsored_slot()`, which binds to a separate
+`httpx.AsyncClient` connection pool tied to whatever event loop first
+touches it. A background thread can't safely pre-warm that pool (its own
+throwaway loop isn't the loop that will later serve requests, and reusing
+the connection across loops raises "Event loop is closed"), so both of
+these adapters additionally call `async_warm_up()` from a real in-loop
+framework lifecycle hook that fires on the actual serving event loop
+before any tool call: FastMCP's `on_initialize` (every MCP client sends
+`initialize` first) and LangChain's `abefore_agent`. That hook fires
+once per instance (guarded by an internal flag) — it targets the first
+real call, same as the sync path, not perpetual warmth; a sporadic cold
+call minutes later, once the 45s cache below has long expired, is not
+re-warmed.
+
+Together, this is what actually closes most of the gap between the cold
+(2.46s) and warm (~200ms) numbers above for a real integrator across all
+four adapters, since it means the very first real tool call — and,
+thanks to the cache, most calls shortly after it — is far more likely to
+land on an already-warm connection. The base `LuluAds`/`new LuluAds`
+client itself does not auto-warm anything — call `warm_up()`/`warmUp()`
+(and, if you're driving the async `sponsored_slot()` yourself from your
+own event loop, `async_warm_up()`) at process startup if you're using it
+directly without one of these adapters.
 
 **Short-TTL cache.** Both clients also cache a successful fill result for
 `cache_ttl_ms`/`cacheTtlMs` (default 45000 = 45s), keyed on the resolved

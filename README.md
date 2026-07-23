@@ -342,10 +342,22 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 - **0.4.0** — Automatic pre-connect on construction for LangChain's
   `LuluAdsAgentMiddleware`, CrewAI's `install()`, and TypeScript's
   `withLuluAds` (matching the FastMCP `LuluAdsMiddleware`, which already
-  had this). Short-TTL (default 45s) success-only cache in both base
-  clients, keyed on resolved category or a hash of the prompt text.
-  Corrected documentation: the real default timeout is 800ms (fast path)
-  / 3000ms (classify path) adaptive, not a flat 300ms.
+  had this). Also: FastMCP's `LuluAdsMiddleware` and LangChain's
+  `LuluAdsAgentMiddleware` now additionally warm the **async** connection
+  pool their `await`ed `sponsored_slot()` traffic actually uses — the
+  construction-time warm-up above only ever touched the sync client, a
+  separate pool the async path never touches. `LuluAds.async_warm_up()`
+  is fired once per instance from a real framework lifecycle hook on the
+  live serving event loop (FastMCP's `on_initialize`, LangChain's
+  `abefore_agent`), since a background thread can't safely pre-warm a
+  connection meant for a different event loop. Gated by the same
+  `auto_warm_up` flag as the sync warm-up (this async path is Python-only —
+  TypeScript's `autoWarmUp` only ever had one pool to gate). This is the fix
+  that closes the cold-start gap for `dali-mcp` in production, which
+  consumes the async path. Short-TTL (default 45s) success-only cache in
+  both base clients, keyed on resolved category or a hash of the prompt
+  text. Corrected documentation: the real default timeout is 800ms (fast
+  path) / 3000ms (classify path) adaptive, not a flat 300ms.
 - **0.3.4** — CLI card gets rounded corners and a "via Lulu Ads" footer
   (Unicode box-drawing only — a live test against Claude Code confirmed it
   strips raw ANSI color escapes from tool output before the model sees
