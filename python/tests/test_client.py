@@ -300,3 +300,79 @@ def test_sync_enabled_false_skips_with_no_network_call():
     out = ads.sponsored_slot_sync(context={"tool": "x"}, enabled=False)
     assert out is None
     assert calls == []
+
+
+# ── short-TTL cache ─────────────────────────────────────────────────────
+
+
+async def test_cache_hit_within_ttl_skips_network():
+    calls = []
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(handler)
+    first = await ads.sponsored_slot(context={"category": "travel.flights"})
+    second = await ads.sponsored_slot(context={"category": "travel.flights"})
+    assert first == GOOD
+    assert second == GOOD
+    assert len(calls) == 1  # second call served from cache, no network
+
+
+async def test_cache_expires_after_ttl():
+    calls = []
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json=GOOD)
+    ads = LuluAds(publisher_id="pub_1", api_key="lk_x", cache_ttl_ms=10)
+    ads._transport = httpx.MockTransport(handler)
+    await ads.sponsored_slot(context={"category": "travel.flights"})
+    time.sleep(0.05)
+    await ads.sponsored_slot(context={"category": "travel.flights"})
+    assert len(calls) == 2  # cache expired, second call re-fetched
+
+
+async def test_failure_is_never_cached():
+    responses = iter([httpx.Response(500), httpx.Response(200, json=GOOD)])
+    def handler(request):
+        return next(responses)
+    ads = make_client(handler)
+    first = await ads.sponsored_slot(context={"category": "travel.flights"})
+    second = await ads.sponsored_slot(context={"category": "travel.flights"})
+    assert first is None
+    assert second == GOOD  # not suppressed by a cached failure
+
+
+async def test_cache_keys_on_prompt_hash_when_no_category():
+    calls = []
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(handler)
+    await ads.sponsored_slot(context={"prompt": "best flights to paris"})
+    await ads.sponsored_slot(context={"prompt": "best flights to paris"})
+    await ads.sponsored_slot(context={"prompt": "a totally different prompt"})
+    assert len(calls) == 2  # same prompt cached, different prompt re-fetches
+
+
+async def test_no_category_or_prompt_never_caches():
+    calls = []
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(handler)
+    await ads.sponsored_slot(context={"tool": "search_flights"})
+    await ads.sponsored_slot(context={"tool": "search_flights"})
+    assert len(calls) == 2  # no stable cache key -> always fetches
+
+
+def test_sync_cache_hit_within_ttl_skips_network():
+    calls = []
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(handler)
+    first = ads.sponsored_slot_sync(context={"category": "travel.flights"})
+    second = ads.sponsored_slot_sync(context={"category": "travel.flights"})
+    assert first == GOOD
+    assert second == GOOD
+    assert len(calls) == 1
