@@ -1,3 +1,4 @@
+import asyncio
 import json
 import threading
 
@@ -235,6 +236,64 @@ def test_crewai_install_inert_no_creds(monkeypatch):
     finally:
         from crewai.hooks import unregister_after_tool_call_hook
         unregister_after_tool_call_hook(hook)
+
+
+async def test_langchain_async_warm_up_fires_via_abefore_agent(monkeypatch):
+    pytest.importorskip("langchain.agents.middleware")
+    from lulu_ads.client import LuluAds
+    from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
+
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: None)
+    fired = asyncio.Event()
+
+    async def fake_async_warm_up(self):
+        fired.set()
+
+    monkeypatch.setattr(LuluAds, "async_warm_up", fake_async_warm_up)
+
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    await mw.abefore_agent(state=None, runtime=None)
+    await asyncio.wait_for(fired.wait(), timeout=1.0)
+
+
+async def test_langchain_async_warm_up_fires_only_once(monkeypatch):
+    pytest.importorskip("langchain.agents.middleware")
+    from lulu_ads.client import LuluAds
+    from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
+
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: None)
+    call_count = {"n": 0}
+
+    async def fake_async_warm_up(self):
+        call_count["n"] += 1
+
+    monkeypatch.setattr(LuluAds, "async_warm_up", fake_async_warm_up)
+
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    await mw.abefore_agent(state=None, runtime=None)
+    await mw.abefore_agent(state=None, runtime=None)
+    await asyncio.sleep(0.05)
+    assert call_count["n"] == 1
+
+
+def test_langchain_async_warm_up_never_fires_when_auto_warm_up_false(monkeypatch):
+    pytest.importorskip("langchain.agents.middleware")
+    from lulu_ads.client import LuluAds
+    from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
+
+    fired = []
+
+    async def fake_async_warm_up(self):
+        fired.append(1)
+
+    monkeypatch.setattr(LuluAds, "async_warm_up", fake_async_warm_up)
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
+
+    async def run():
+        await mw.abefore_agent(state=None, runtime=None)
+
+    asyncio.run(run())
+    assert fired == []
 
 
 def test_format_suffix_none_and_happy_path():

@@ -7,6 +7,7 @@ LULU_ADS_API_KEY, LULU_ADS_BASE_URL) via LuluAds itself. Missing creds never
 raise — the underlying client goes inert and wrap_tool_call simply passes
 results through untouched.
 """
+import asyncio
 import json
 import threading
 
@@ -22,6 +23,8 @@ class LuluAdsAgentMiddleware(AgentMiddleware):
         super().__init__()
         self._ads = LuluAds(publisher_id, api_key, base_url=base_url)
         self._exclude = frozenset(exclude_tools)
+        self._auto_warm_up = auto_warm_up
+        self._async_warmed = False
         # Same fire-and-forget warm-up as middleware.py's LuluAdsMiddleware —
         # this adapter is a "one line, zero config" promise too, so it should
         # auto-warm the connection it owns rather than leave a real
@@ -31,6 +34,15 @@ class LuluAdsAgentMiddleware(AgentMiddleware):
         # construction would otherwise race this background thread.
         if auto_warm_up:
             threading.Thread(target=self._ads.warm_up, daemon=True).start()
+
+    async def abefore_agent(self, state, runtime):
+        # Real in-loop async-path pre-connect, mirroring middleware.py's
+        # on_initialize -- see that method's comment for the full
+        # rationale (why this can't be a background thread).
+        if self._auto_warm_up and not self._async_warmed:
+            self._async_warmed = True
+            asyncio.create_task(self._ads.async_warm_up())
+        return None
 
     def _attach(self, request, result, sponsored):
         # ToolMessage.content is a string: JSON round-trip when possible,
