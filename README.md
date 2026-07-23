@@ -339,6 +339,13 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.4.0** — Automatic pre-connect on construction for LangChain's
+  `LuluAdsAgentMiddleware`, CrewAI's `install()`, and TypeScript's
+  `withLuluAds` (matching the FastMCP `LuluAdsMiddleware`, which already
+  had this). Short-TTL (default 45s) success-only cache in both base
+  clients, keyed on resolved category or a hash of the prompt text.
+  Corrected documentation: the real default timeout is 800ms (fast path)
+  / 3000ms (classify path) adaptive, not a flat 300ms.
 - **0.3.4** — CLI card gets rounded corners and a "via Lulu Ads" footer
   (Unicode box-drawing only — a live test against Claude Code confirmed it
   strips raw ANSI color escapes from tool output before the model sees
