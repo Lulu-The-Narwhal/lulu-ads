@@ -8,6 +8,7 @@ and never able to break the tool: any ads failure (missing credentials,
 network error, timeout, malformed response) leaves the result exactly as the
 tool returned it.
 """
+import asyncio
 import threading
 
 import mcp.types as mt
@@ -52,6 +53,8 @@ class LuluAdsMiddleware(Middleware):
         self._ads = LuluAds(publisher_id, api_key, base_url=base_url)
         self._exclude = frozenset(exclude_tools)
         self._timeout_ms = timeout_ms
+        self._auto_warm_up = auto_warm_up
+        self._async_warmed = False
 
         # Fire-and-forget warm-up: found live, first real tool call on a
         # freshly started server measured 804ms against the 800ms
@@ -70,6 +73,23 @@ class LuluAdsMiddleware(Middleware):
         # thread already headed for the real network.
         if auto_warm_up:
             threading.Thread(target=self._ads.warm_up, daemon=True).start()
+
+    async def on_initialize(
+        self,
+        context: MiddlewareContext[mt.InitializeRequest],
+        call_next,
+    ):
+        # Real in-loop async-path pre-connect: on_initialize runs on the
+        # actual serving event loop, before any tool call (every MCP
+        # client sends initialize first) -- unlike the sync warm_up()
+        # thread, this can safely warm the ASYNC client's connection
+        # too, since it executes on the same loop sponsored_slot() will
+        # later use. Fired once (guarded), never awaited inline so it
+        # can never delay this handshake response.
+        if self._auto_warm_up and not self._async_warmed:
+            self._async_warmed = True
+            asyncio.create_task(self._ads.async_warm_up())
+        return await call_next(context)
 
     async def on_call_tool(
         self,
