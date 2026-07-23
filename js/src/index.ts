@@ -45,6 +45,7 @@ const MAX_VALUE_LEN = 200;
 // hop, and only applies when that hop is actually going to run.
 const FAST_TIMEOUT_MS = 800;
 const CLASSIFY_TIMEOUT_MS = 3000;
+const DEFAULT_CACHE_TTL_MS = 45_000;
 
 function resolveTimeoutMs(context: Record<string, unknown> | undefined, timeoutMs: number | undefined): number {
   if (timeoutMs != null) return timeoutMs;
@@ -58,6 +59,26 @@ function cleanContext(context?: Record<string, unknown>): Record<string, string>
     if (ALLOWED_CONTEXT_KEYS.has(k) && v != null) out[k] = String(v).slice(0, MAX_VALUE_LEN);
   }
   return out;
+}
+
+// Non-cryptographic (FNV-1a) — this is a cache key, not a security
+// boundary, and avoiding node:crypto keeps the client portable to
+// non-Node runtimes (edge/workers) that also have global fetch.
+function hashString(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
+function computeCacheKey(cleaned: Record<string, string>): string | null {
+  // See client.py's _cache_key for the full rationale (category first,
+  // prompt hash as fallback, no caching without either).
+  if (cleaned.category) return `cat:${cleaned.category}`;
+  if (cleaned.prompt) return `prompt:${hashString(cleaned.prompt)}`;
+  return null;
 }
 
 /**
@@ -76,12 +97,15 @@ export class LuluAds {
   private publisherId?: string;
   private apiKey?: string;
   private baseUrl: string;
+  private cacheTtlMs: number;
+  private cache = new Map<string, { value: Sponsored; expiresAt: number }>();
 
-  constructor(opts?: { publisherId?: string; apiKey?: string; baseUrl?: string }) {
+  constructor(opts?: { publisherId?: string; apiKey?: string; baseUrl?: string; cacheTtlMs?: number }) {
     this.publisherId = opts?.publisherId ?? process.env.LULU_ADS_PUBLISHER_ID;
     this.apiKey = opts?.apiKey ?? process.env.LULU_ADS_API_KEY;
     const baseUrl = opts?.baseUrl ?? process.env.LULU_ADS_BASE_URL ?? "https://ads.getlulu.dev";
     this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.cacheTtlMs = opts?.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
   }
 
   private isInert(): boolean {
@@ -104,11 +128,18 @@ export class LuluAds {
     if (opts?.enabled === false) return null;
     if (this.isInert()) return null;
 
+    const cleaned = cleanContext(opts?.context);
+    const key = computeCacheKey(cleaned);
+    if (key) {
+      const hit = this.cache.get(key);
+      if (hit && hit.expiresAt > Date.now()) return hit.value;
+    }
+
     try {
       const res = await fetch(`${this.baseUrl}/slot`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-api-key": this.apiKey! },
-        body: JSON.stringify({ context: cleanContext(opts?.context) }),
+        body: JSON.stringify({ context: cleaned }),
         signal: AbortSignal.timeout(resolveTimeoutMs(opts?.context, opts?.timeoutMs)),
       });
       if (res.status !== 200) return null;
@@ -116,6 +147,7 @@ export class LuluAds {
       if (!body?.text || !body?.url) return null;
       const result: Sponsored = { label: "Sponsored", text: String(body.text), url: String(body.url) };
       if (body.logo_url) result.logoUrl = String(body.logo_url);
+      if (key) this.cache.set(key, { value: result, expiresAt: Date.now() + this.cacheTtlMs });
       return result;
     } catch {
       return null;
