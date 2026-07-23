@@ -269,6 +269,25 @@ def test_warm_up_never_raises_on_failure():
     ads.warm_up()  # must not raise
 
 
+async def test_async_warm_up_hits_health_endpoint_and_never_raises():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, text="ok")
+
+    ads = LuluAds("pub_x", "key_x", base_url="https://ads.example.com")
+    ads._transport = httpx.MockTransport(handler)
+    await ads.async_warm_up()
+    assert calls == ["https://ads.example.com/health"]
+
+
+async def test_async_warm_up_never_raises_on_failure():
+    ads = LuluAds("pub_x", "key_x")
+    ads._transport = httpx.MockTransport(lambda r: httpx.Response(500))
+    await ads.async_warm_up()  # must not raise
+
+
 # ── enabled=False (tiered-pricing ads on/off switch) ────────────────────
 
 async def test_enabled_false_skips_with_no_network_call():

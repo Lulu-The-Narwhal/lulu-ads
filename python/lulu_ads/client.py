@@ -208,6 +208,24 @@ class LuluAds:
         except Exception:
             pass
 
+    async def async_warm_up(self) -> None:
+        """Async counterpart to warm_up() -- pre-establishes a warm
+        connection for the ASYNC client (sponsored_slot's pool), which
+        warm_up() cannot touch: httpx.AsyncClient binds to whichever event
+        loop first uses it, so constructing/warming it from a background
+        thread's own throwaway loop and reusing it later on the real
+        server's loop raises "Event loop is closed" (verified live).
+        Callers must await this from the SAME event loop that will later
+        call sponsored_slot() -- in practice, from a real in-loop
+        lifecycle hook (FastMCP's on_initialize, LangChain's
+        abefore_agent), never from a background thread. Never raises.
+        """
+        try:
+            client = self._ensure_async_client()
+            await client.get(f"{self._base_url}/health", timeout=5.0)
+        except Exception:
+            pass
+
     def _request_args(self, cleaned_context: dict) -> dict:
         return {
             "url": f"{self._base_url}/slot",
