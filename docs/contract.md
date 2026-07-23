@@ -63,15 +63,63 @@ Missing or invalid `x-api-key`.
 
 **Timing**
 
-The default SDK timeout is 300ms wall clock (covering connect + request +
-parse) — not a round guess. Measured real end-to-end latency against
-production `ads.getlulu.dev`, with a warmed, pooled client (the way every
-client in this repo is built to be used), was ~165–215ms; 300ms is that
-floor plus real margin for publishers on slower network paths. Every
-client in this repo enforces that cap itself and returns `None`/`null` on
-timeout — the contract does not depend on the server always being fast,
-only on the client never waiting past the cap. Pass `timeout_ms`
+The default SDK timeout is 800ms wall clock (covering connect + request +
+parse) — 3000ms instead when the call omits an explicit `category` but
+includes a `prompt`, since ads-server may run its own server-side Gemini
+classification on that path (up to a 2.0s internal budget there). Neither
+number is a round guess. Measured real end-to-end latency against
+production `ads.getlulu.dev` with a warmed, pooled client was ~155–215ms;
+measured **cold** (fresh TLS handshake + SSL context build, the common
+case for real MCP tool-call traffic — sporadic human-paced calls rarely
+keep a connection warm on their own) was **2.46s**. 800ms is the warm
+floor plus real margin; 3000ms is sized for the classify path specifically.
+Every client in this repo enforces its cap itself and returns `None`/`null`
+on timeout — the contract does not depend on the server always being
+fast, only on the client never waiting past the cap. Pass `timeout_ms`
 (`timeoutMs` in TS) to tighten or loosen it for your own network path.
+
+**Automatic pre-connect.** All four adapters — the FastMCP middleware, the
+LangChain middleware, the CrewAI `install()` hook, and TypeScript's
+`withLuluAds` — auto-warm by default (`auto_warm_up`/`autoWarmUp: false`
+to disable). CrewAI and TypeScript have a single connection pool to warm,
+and they do it the simple way: firing the client's `warm_up()`/`warmUp()`
+in the background on construction (a daemon thread for CrewAI's Python
+client, an unawaited fire-and-forget promise for TypeScript — there's no
+thread concept in JS). FastMCP and LangChain do that too, but it only
+warms their *sync* pool — their real traffic goes
+through the `async` `sponsored_slot()`, which binds to a separate
+`httpx.AsyncClient` connection pool tied to whatever event loop first
+touches it. A background thread can't safely pre-warm that pool (its own
+throwaway loop isn't the loop that will later serve requests, and reusing
+the connection across loops raises "Event loop is closed"), so both of
+these adapters additionally call `async_warm_up()` from a real in-loop
+framework lifecycle hook that fires on the actual serving event loop
+before any tool call: FastMCP's `on_initialize` (every MCP client sends
+`initialize` first) and LangChain's `abefore_agent`. That hook fires
+once per instance (guarded by an internal flag) — it targets the first
+real call, same as the sync path, not perpetual warmth; a sporadic cold
+call minutes later, once the 45s cache below has long expired, is not
+re-warmed.
+
+Together, this is what actually closes most of the gap between the cold
+(2.46s) and warm (~200ms) numbers above for a real integrator across all
+four adapters, since it means the very first real tool call — and,
+thanks to the cache, most calls shortly after it — is far more likely to
+land on an already-warm connection. The base `LuluAds`/`new LuluAds`
+client itself does not auto-warm anything — call `warm_up()`/`warmUp()`
+(and, if you're driving the async `sponsored_slot()` yourself from your
+own event loop, `async_warm_up()`) at process startup if you're using it
+directly without one of these adapters.
+
+**Short-TTL cache.** Both clients also cache a successful fill result for
+`cache_ttl_ms`/`cacheTtlMs` (default 45000 = 45s), keyed on the resolved
+`category` when explicit, or a hash of the `prompt` text when only that's
+given (so repeated identical prompts skip the classification cost too,
+not just the network hop). A failure is never cached — a transient error
+never suppresses a real ad for the whole TTL window. Pass
+`cache_ttl_ms`/`cacheTtlMs` at construction to tune or disable it (`0`
+disables caching entirely, since nothing can satisfy `expiresAt > now`
+with a zero-length window).
 
 ## `GET /c/{token}`
 

@@ -14,8 +14,10 @@ This SDK ships data, never directives — nothing here instructs a model
 to display anything. The host decides.
 """
 import asyncio
+import hashlib
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import httpx
@@ -41,6 +43,7 @@ _MAX_VALUE_LEN = 200
 # hop, and only applies when that hop is actually going to run.
 _FAST_TIMEOUT_MS = 800
 _CLASSIFY_TIMEOUT_MS = 3000
+_DEFAULT_CACHE_TTL_MS = 45_000
 
 
 def _resolve_timeout_ms(context: dict | None, timeout_ms: int | None) -> int:
@@ -79,6 +82,25 @@ def _clean_context(context: dict | None) -> dict:
     }
 
 
+def _cache_key(cleaned_context: dict) -> str | None:
+    # Category is the stable, low-cardinality identity when explicit.
+    # Otherwise, when only a raw prompt is given (the path that triggers
+    # ads-server's own server-side Gemini classification, currently the
+    # slowest at up to 3000ms), key on a hash of the prompt text so a
+    # repeated identical prompt within the TTL skips the classification
+    # cost too, not just the network hop. With neither, there's no stable
+    # identity to key on without over-broadening the cache (e.g. keying on
+    # `tool` alone would return the same ad to every call for that tool
+    # regardless of category) -- so no caching happens in that case.
+    category = cleaned_context.get("category")
+    if category:
+        return f"cat:{category}"
+    prompt = cleaned_context.get("prompt")
+    if prompt:
+        return f"prompt:{hashlib.sha256(prompt.encode()).hexdigest()[:16]}"
+    return None
+
+
 def format_suffix(sponsored: dict | None) -> str:
     """For runtimes that OWN the final response surface (chat bots,
     WhatsApp/Telegram agents, self-hosted assistants). The HARNESS appends
@@ -112,6 +134,7 @@ class LuluAds:
         publisher_id: str | None = None,
         api_key: str | None = None,
         base_url: str | None = None,
+        cache_ttl_ms: int = _DEFAULT_CACHE_TTL_MS,
     ):
         # Get from env if not provided
         self._publisher_id = publisher_id or os.environ.get("LULU_ADS_PUBLISHER_ID")
@@ -136,6 +159,8 @@ class LuluAds:
         self._async_client: httpx.AsyncClient | None = None
         self._async_client_transport: httpx.BaseTransport | None = None
         self._client_lock = threading.Lock()
+        self._cache_ttl_ms = cache_ttl_ms
+        self._cache: dict[str, tuple[dict, float]] = {}
 
     def _ensure_sync_client(self) -> httpx.Client:
         with self._client_lock:
@@ -183,10 +208,28 @@ class LuluAds:
         except Exception:
             pass
 
-    def _request_args(self, context: dict | None) -> dict:
+    async def async_warm_up(self) -> None:
+        """Async counterpart to warm_up() -- pre-establishes a warm
+        connection for the ASYNC client (sponsored_slot's pool), which
+        warm_up() cannot touch: httpx.AsyncClient binds to whichever event
+        loop first uses it, so constructing/warming it from a background
+        thread's own throwaway loop and reusing it later on the real
+        server's loop raises "Event loop is closed" (verified live).
+        Callers must await this from the SAME event loop that will later
+        call sponsored_slot() -- in practice, from a real in-loop
+        lifecycle hook (FastMCP's on_initialize, LangChain's
+        abefore_agent), never from a background thread. Never raises.
+        """
+        try:
+            client = self._ensure_async_client()
+            await client.get(f"{self._base_url}/health", timeout=5.0)
+        except Exception:
+            pass
+
+    def _request_args(self, cleaned_context: dict) -> dict:
         return {
             "url": f"{self._base_url}/slot",
-            "json": {"context": _clean_context(context)},
+            "json": {"context": cleaned_context},
             "headers": {"x-api-key": self._api_key},
         }
 
@@ -205,6 +248,13 @@ class LuluAds:
         if self._is_inert():
             return None
 
+        cleaned = _clean_context(context)
+        cache_key = _cache_key(cleaned)
+        if cache_key is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None and cached[1] > time.time():
+                return cached[0]
+
         effective_timeout_ms = _resolve_timeout_ms(context, timeout_ms)
 
         async def _fetch():
@@ -217,15 +267,19 @@ class LuluAds:
             # self-sustaining failure loop that never actually warms up.
             # One deadline, enforced once, outside: httpx keeps its own
             # generous client-level default (5.0s) as an inert backstop.
-            r = await client.post(**self._request_args(context))
+            r = await client.post(**self._request_args(cleaned))
             if r.status_code != 200:
                 return None
             return _parse(r.status_code, r.json() if r.content else None)
 
         try:
-            return await asyncio.wait_for(_fetch(), timeout=effective_timeout_ms / 1000)
+            result = await asyncio.wait_for(_fetch(), timeout=effective_timeout_ms / 1000)
         except Exception:
-            return None
+            result = None
+
+        if result is not None and cache_key is not None:
+            self._cache[cache_key] = (result, time.time() + self._cache_ttl_ms / 1000)
+        return result
 
     def sponsored_slot_sync(
         self, context: dict | None = None, timeout_ms: int | None = None, enabled: bool = True
@@ -238,26 +292,37 @@ class LuluAds:
         if self._is_inert():
             return None
 
+        cleaned = _clean_context(context)
+        cache_key = _cache_key(cleaned)
+        if cache_key is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None and cached[1] > time.time():
+                return cached[0]
+
         effective_timeout_ms = _resolve_timeout_ms(context, timeout_ms)
 
         def _fetch():
             client = self._ensure_sync_client()
             # Same reasoning as the async path above: one deadline (the
             # future.result() timeout below), not two racing ones.
-            r = client.post(**self._request_args(context))
+            r = client.post(**self._request_args(cleaned))
             if r.status_code != 200:
                 return None
             return _parse(r.status_code, r.json() if r.content else None)
 
         try:
             future = _get_executor().submit(_fetch)
-            return future.result(timeout=effective_timeout_ms / 1000)
+            result = future.result(timeout=effective_timeout_ms / 1000)
         except FutureTimeoutError:
             # Hard wall-clock cap hit. The worker thread is abandoned here — it
             # keeps running and is itself bounded by httpx's per-phase timeout,
             # but its result is never observed. Acceptable: we never block the
             # caller past the deadline, and the executor's small max_workers
             # bounds how many abandoned requests can pile up.
-            return None
+            result = None
         except Exception:
-            return None
+            result = None
+
+        if result is not None and cache_key is not None:
+            self._cache[cache_key] = (result, time.time() + self._cache_ttl_ms / 1000)
+        return result

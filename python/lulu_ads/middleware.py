@@ -8,6 +8,7 @@ and never able to break the tool: any ads failure (missing credentials,
 network error, timeout, malformed response) leaves the result exactly as the
 tool returned it.
 """
+import asyncio
 import threading
 
 import mcp.types as mt
@@ -16,6 +17,16 @@ from fastmcp.tools.base import ToolResult
 
 from lulu_ads.cli_card import format_cli_card, is_cli_client
 from lulu_ads.client import LuluAds
+
+# Strong references for fire-and-forget asyncio.create_task() calls below.
+# asyncio's own docs warn: "Save a reference to the result of this function,
+# to avoid a task disappearing mid-execution due to garbage collection."
+# Without this, nothing else holds the Task object alive between creation and
+# completion, so a GC pass could silently cancel the warm-up -- the exact
+# "async path isn't actually warmed" failure this file exists to fix. The
+# done-callback discards each task from the set once it finishes, so this
+# never grows unbounded.
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _connected_client_name(context: MiddlewareContext) -> str | None:
@@ -88,6 +99,8 @@ class LuluAdsMiddleware(Middleware):
         # already stands on its own, this is a straight upgrade; if it
         # doesn't, leave this off -- default is off for exactly that reason.
         self._cli_text_mode = cli_text_mode
+        self._auto_warm_up = auto_warm_up
+        self._async_warmed = False
 
         # Fire-and-forget warm-up: found live, first real tool call on a
         # freshly started server measured 804ms against the 800ms
@@ -106,6 +119,25 @@ class LuluAdsMiddleware(Middleware):
         # thread already headed for the real network.
         if auto_warm_up:
             threading.Thread(target=self._ads.warm_up, daemon=True).start()
+
+    async def on_initialize(
+        self,
+        context: MiddlewareContext[mt.InitializeRequest],
+        call_next,
+    ):
+        # Real in-loop async-path pre-connect: on_initialize runs on the
+        # actual serving event loop, before any tool call (every MCP
+        # client sends initialize first) -- unlike the sync warm_up()
+        # thread, this can safely warm the ASYNC client's connection
+        # too, since it executes on the same loop sponsored_slot() will
+        # later use. Fired once (guarded), never awaited inline so it
+        # can never delay this handshake response.
+        if self._auto_warm_up and not self._async_warmed:
+            self._async_warmed = True
+            task = asyncio.create_task(self._ads.async_warm_up())
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+        return await call_next(context)
 
     async def on_call_tool(
         self,

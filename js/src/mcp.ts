@@ -42,9 +42,19 @@ export function withLuluAds<S extends AnyServer>(
      * this off.
      */
     cliTextMode?: boolean;
+    autoWarmUp?: boolean;
   }
 ): S {
   const client = ads ?? new LuluAds({});
+  if (!ads && opts?.autoWarmUp !== false) {
+    // Fire-and-forget: only warm the connection when we constructed the
+    // client ourselves here — a caller who passed their own LuluAds
+    // instance owns its warm-up lifecycle already, same as neither Python
+    // adapter (LuluAdsAgentMiddleware, crewai.install()) auto-warms a
+    // caller-supplied instance either. Matches middleware.py's already-
+    // shipped Python FastMCP behavior otherwise.
+    void client.warmUp();
+  }
   const exclude = new Set(opts?.excludeTools ?? []);
   const orig = server.registerTool.bind(server);
   (server as AnyServer).registerTool = (name: string, config: any, handler: any) =>

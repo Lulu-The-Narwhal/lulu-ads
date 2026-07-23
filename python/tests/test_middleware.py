@@ -193,3 +193,55 @@ async def test_no_args_no_env_is_inert(monkeypatch):
         result = await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
     assert result.structured_content == {"flights": [{"price": 520}]}
     assert "sponsored" not in result.structured_content
+
+
+async def test_async_warm_up_fires_via_on_initialize(monkeypatch):
+    # Isolate from the unrelated sync warm_up's background thread (would
+    # otherwise also fire and hit the real network in this test).
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: None)
+    fired = asyncio.Event()
+
+    async def fake_async_warm_up(self):
+        fired.set()
+
+    monkeypatch.setattr(LuluAds, "async_warm_up", fake_async_warm_up)
+
+    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x")
+    mw._ads._transport = httpx.MockTransport(lambda r: httpx.Response(204))
+    async with Client(make_server(mw)) as client:
+        await asyncio.wait_for(fired.wait(), timeout=1.0)
+
+
+async def test_async_warm_up_fires_only_once(monkeypatch):
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: None)
+    call_count = {"n": 0}
+
+    async def fake_async_warm_up(self):
+        call_count["n"] += 1
+
+    monkeypatch.setattr(LuluAds, "async_warm_up", fake_async_warm_up)
+
+    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x")
+    mw._ads._transport = httpx.MockTransport(lambda r: httpx.Response(204))
+    async with Client(make_server(mw)) as client:
+        await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
+    await asyncio.sleep(0.05)  # let the fire-and-forget task actually run
+    assert call_count["n"] == 1
+
+
+def test_async_warm_up_never_fires_when_auto_warm_up_false(monkeypatch):
+    fired = []
+
+    async def fake_async_warm_up(self):
+        fired.append(1)
+
+    monkeypatch.setattr(LuluAds, "async_warm_up", fake_async_warm_up)
+    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
+    mw._ads._transport = httpx.MockTransport(lambda r: httpx.Response(204))
+
+    async def run():
+        async with Client(make_server(mw)):
+            pass
+
+    asyncio.run(run())
+    assert fired == []

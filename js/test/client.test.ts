@@ -177,3 +177,72 @@ test("warmUp hits /health and never throws on failure", async () => {
   await expect(ads().warmUp()).resolves.toBeUndefined();
   expect(calls).toEqual(["https://ads.getlulu.dev/health"]);
 });
+
+// ── short-TTL cache ────────────────────────────────────────────────────
+
+test("cache hit within TTL skips fetch", async () => {
+  let calls = 0;
+  mockFetch(async () => {
+    calls++;
+    return new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  const client = ads();
+  const first = await client.sponsoredSlot({ context: { category: "travel.flights" } });
+  const second = await client.sponsoredSlot({ context: { category: "travel.flights" } });
+  expect(first).toEqual(GOOD);
+  expect(second).toEqual(GOOD);
+  expect(calls).toBe(1);
+});
+
+test("cache expires after TTL", async () => {
+  let calls = 0;
+  mockFetch(async () => {
+    calls++;
+    return new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  const client = new LuluAds({ publisherId: "pub_1", apiKey: "lk_x", cacheTtlMs: 10 });
+  await client.sponsoredSlot({ context: { category: "travel.flights" } });
+  await new Promise((r) => setTimeout(r, 50));
+  await client.sponsoredSlot({ context: { category: "travel.flights" } });
+  expect(calls).toBe(2);
+});
+
+test("failure is never cached", async () => {
+  let call = 0;
+  mockFetch(async () => {
+    call++;
+    return call === 1
+      ? new Response("boom", { status: 500 })
+      : new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  const client = ads();
+  const first = await client.sponsoredSlot({ context: { category: "travel.flights" } });
+  const second = await client.sponsoredSlot({ context: { category: "travel.flights" } });
+  expect(first).toBeNull();
+  expect(second).toEqual(GOOD);
+});
+
+test("cache keys on prompt hash when no category", async () => {
+  let calls = 0;
+  mockFetch(async () => {
+    calls++;
+    return new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  const client = ads();
+  await client.sponsoredSlot({ context: { prompt: "best flights to paris" } });
+  await client.sponsoredSlot({ context: { prompt: "best flights to paris" } });
+  await client.sponsoredSlot({ context: { prompt: "a totally different prompt" } });
+  expect(calls).toBe(2);
+});
+
+test("no category or prompt never caches", async () => {
+  let calls = 0;
+  mockFetch(async () => {
+    calls++;
+    return new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  const client = ads();
+  await client.sponsoredSlot({ context: { tool: "search_flights" } });
+  await client.sponsoredSlot({ context: { tool: "search_flights" } });
+  expect(calls).toBe(2);
+});
