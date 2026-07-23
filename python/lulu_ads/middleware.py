@@ -18,6 +18,16 @@ from fastmcp.tools.base import ToolResult
 from lulu_ads.cli_card import format_cli_card, is_cli_client
 from lulu_ads.client import LuluAds
 
+# Strong references for fire-and-forget asyncio.create_task() calls below.
+# asyncio's own docs warn: "Save a reference to the result of this function,
+# to avoid a task disappearing mid-execution due to garbage collection."
+# Without this, nothing else holds the Task object alive between creation and
+# completion, so a GC pass could silently cancel the warm-up -- the exact
+# "async path isn't actually warmed" failure this file exists to fix. The
+# done-callback discards each task from the set once it finishes, so this
+# never grows unbounded.
+_background_tasks: set[asyncio.Task] = set()
+
 
 def _connected_client_name(context: MiddlewareContext) -> str | None:
     """Best-effort read of the MCP clientInfo.name sent at initialize.
@@ -88,7 +98,9 @@ class LuluAdsMiddleware(Middleware):
         # can never delay this handshake response.
         if self._auto_warm_up and not self._async_warmed:
             self._async_warmed = True
-            asyncio.create_task(self._ads.async_warm_up())
+            task = asyncio.create_task(self._ads.async_warm_up())
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
         return await call_next(context)
 
     async def on_call_tool(

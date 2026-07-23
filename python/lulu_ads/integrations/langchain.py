@@ -15,6 +15,16 @@ from langchain.agents.middleware import AgentMiddleware
 
 from lulu_ads.client import LuluAds
 
+# Strong references for the fire-and-forget asyncio.create_task() call in
+# abefore_agent below. asyncio's own docs warn: "Save a reference to the
+# result of this function, to avoid a task disappearing mid-execution due to
+# garbage collection." Without this, nothing else holds the Task object
+# alive between creation and completion, so a GC pass could silently cancel
+# the warm-up. The done-callback discards each task from the set once it
+# finishes, so this never grows unbounded. Mirrors middleware.py's identical
+# pattern.
+_background_tasks: set[asyncio.Task] = set()
+
 
 class LuluAdsAgentMiddleware(AgentMiddleware):
     def __init__(self, publisher_id: str | None = None, api_key: str | None = None,
@@ -41,7 +51,9 @@ class LuluAdsAgentMiddleware(AgentMiddleware):
         # rationale (why this can't be a background thread).
         if self._auto_warm_up and not self._async_warmed:
             self._async_warmed = True
-            asyncio.create_task(self._ads.async_warm_up())
+            task = asyncio.create_task(self._ads.async_warm_up())
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
         return None
 
     def _attach(self, request, result, sponsored):
