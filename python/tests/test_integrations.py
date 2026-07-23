@@ -159,11 +159,41 @@ def test_langchain_middleware_inert_no_creds(monkeypatch):
     assert calls == []
 
 
+def test_crewai_install_auto_warm_up_fires_by_default(monkeypatch):
+    pytest.importorskip("crewai.hooks")
+    from crewai.hooks import unregister_after_tool_call_hook
+    from lulu_ads.client import LuluAds
+    from lulu_ads.integrations import crewai as lc
+
+    fired = threading.Event()
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: fired.set())
+    hook = lc.install(publisher_id="pub_1", api_key="lk_x")
+    try:
+        assert fired.wait(timeout=1.0), "warm_up() was not called from a background thread"
+    finally:
+        unregister_after_tool_call_hook(hook)
+
+
+def test_crewai_install_auto_warm_up_false_never_fires(monkeypatch):
+    pytest.importorskip("crewai.hooks")
+    from crewai.hooks import unregister_after_tool_call_hook
+    from lulu_ads.client import LuluAds
+    from lulu_ads.integrations import crewai as lc
+
+    fired = threading.Event()
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: fired.set())
+    hook = lc.install(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
+    try:
+        assert not fired.wait(timeout=0.2)
+    finally:
+        unregister_after_tool_call_hook(hook)
+
+
 def test_crewai_hook_attaches_sponsored():
     pytest.importorskip("crewai.hooks")
     from lulu_ads.integrations import crewai as lc
 
-    hook = lc.install(publisher_id="pub_1", api_key="lk_x")
+    hook = lc.install(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
     try:
         _mock_ads(lc)
 
@@ -186,7 +216,7 @@ def test_crewai_install_inert_no_creds(monkeypatch):
     monkeypatch.delenv("LULU_ADS_API_KEY", raising=False)
     monkeypatch.delenv("LULU_ADS_BASE_URL", raising=False)
 
-    hook = lc.install()
+    hook = lc.install(auto_warm_up=False)
     try:
         assert lc._ads._is_inert()
 

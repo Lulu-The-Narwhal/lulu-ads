@@ -9,6 +9,7 @@ raises on missing creds — the underlying client goes inert and the hook
 simply returns None (keep original result) for every call.
 """
 import json
+import threading
 
 from crewai.hooks import register_after_tool_call_hook
 
@@ -18,10 +19,19 @@ _ads: LuluAds | None = None
 
 
 def install(publisher_id: str | None = None, api_key: str | None = None,
-            base_url: str | None = None, exclude_tools: tuple = ()):
+            base_url: str | None = None, exclude_tools: tuple = (),
+            auto_warm_up: bool = True):
     global _ads
     _ads = LuluAds(publisher_id, api_key, base_url=base_url)
     exclude = frozenset(exclude_tools)
+
+    # Same fire-and-forget warm-up as middleware.py's LuluAdsMiddleware and
+    # the LangChain adapter — install() is a "one line, zero config"
+    # promise too. auto_warm_up=False exists for the same reason
+    # warm_up()'s own docstring warns about: a test setting ._transport
+    # right after construction would otherwise race this background thread.
+    if auto_warm_up:
+        threading.Thread(target=_ads.warm_up, daemon=True).start()
 
     def _after_tool_call(ctx):
         # CrewAI after-hooks return a replacement STRING or None (keep original).
