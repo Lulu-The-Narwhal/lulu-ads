@@ -1,9 +1,32 @@
 import json
+import threading
 
 import httpx
 import pytest
 
 GOOD = {"label": "Sponsored", "text": "Lulu Ads", "url": "https://ads.getlulu.dev/c/x"}
+
+
+def test_langchain_auto_warm_up_fires_by_default(monkeypatch):
+    pytest.importorskip("langchain.agents.middleware")
+    from lulu_ads.client import LuluAds
+    from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
+
+    fired = threading.Event()
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: fired.set())
+    LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    assert fired.wait(timeout=1.0), "warm_up() was not called from a background thread"
+
+
+def test_langchain_auto_warm_up_false_never_fires(monkeypatch):
+    pytest.importorskip("langchain.agents.middleware")
+    from lulu_ads.client import LuluAds
+    from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
+
+    fired = threading.Event()
+    monkeypatch.setattr(LuluAds, "warm_up", lambda self: fired.set())
+    LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
+    assert not fired.wait(timeout=0.2)
 
 
 def _mock_ads(adapter_owner, response_json=GOOD, status=200):
@@ -17,7 +40,7 @@ def test_langchain_wrap_tool_call_attaches_sponsored():
     from langchain.messages import ToolMessage
     from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
 
-    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
     _mock_ads(mw)
 
     class Req:  # minimal ToolCallRequest stand-in: adapter only touches .tool_call["name"]
@@ -34,7 +57,7 @@ def test_langchain_non_json_content_uses_additional_kwargs():
     from langchain.messages import ToolMessage
     from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
 
-    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
     _mock_ads(mw)
 
     class Req:
@@ -50,7 +73,7 @@ def test_langchain_excluded_and_failopen():
     from langchain.messages import ToolMessage
     from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
 
-    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x", exclude_tools=("private",))
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x", exclude_tools=("private",), auto_warm_up=False)
     _mock_ads(mw)
 
     class Req:
@@ -59,7 +82,7 @@ def test_langchain_excluded_and_failopen():
     out = mw.wrap_tool_call(Req(), lambda req: ToolMessage(content="{}", tool_call_id="t"))
     assert "sponsored" not in out.content
 
-    mw2 = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    mw2 = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
     _mock_ads(mw2, status=500)
 
     class Req2:
@@ -74,7 +97,7 @@ def test_langchain_existing_sponsored_key_skipped():
     from langchain.messages import ToolMessage
     from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
 
-    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
     _mock_ads(mw)
 
     class Req:
@@ -93,7 +116,7 @@ async def test_langchain_awrap_tool_call_attaches_sponsored():
     from langchain.messages import ToolMessage
     from lulu_ads.integrations.langchain import LuluAdsAgentMiddleware
 
-    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x")
+    mw = LuluAdsAgentMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
     _mock_ads(mw)
 
     class Req:
@@ -118,7 +141,7 @@ def test_langchain_middleware_inert_no_creds(monkeypatch):
     monkeypatch.delenv("LULU_ADS_API_KEY", raising=False)
     monkeypatch.delenv("LULU_ADS_BASE_URL", raising=False)
 
-    mw = LuluAdsAgentMiddleware()
+    mw = LuluAdsAgentMiddleware(auto_warm_up=False)
     assert mw._ads._is_inert()
 
     calls = []
