@@ -1,47 +1,45 @@
+import { useEffect, useState } from "react"
 import { SponsoredCard, type SponsoredCardState } from "./SponsoredCard"
+import { initClickRedirect, initHandshake, listenForToolResult } from "./mcpBridge"
 
-// Visual QA harness for Task 2 -- not the final widget shell (that's
-// Task 3+). Renders all three states side by side at the widget's real
-// width so skeleton/loaded/no-fill can be eyeballed in one screenshot.
-const loadedState: SponsoredCardState = {
-  kind: "loaded",
-  label: "Sponsored",
-  text: "Save 15% at checkout with our partner",
-  url: "https://example.com/deal",
-  cta: "Learn more →",
-}
-
-const loadedWithLogoState: SponsoredCardState = {
-  ...loadedState,
-  logoDataUri:
-    "data:image/svg+xml;base64," +
-    btoa(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28"><rect width="28" height="28" rx="6" fill="#E07A00"/><text x="14" y="19" font-size="14" text-anchor="middle" fill="white">L</text></svg>'
-    ),
-}
-
-function Demo({ title, state }: { title: string; state: SponsoredCardState }) {
-  return (
-    <div style={{ marginBottom: 24 }}>
-      <p style={{ font: "12px monospace", color: "#666", marginBottom: 6 }}>
-        {title}
-      </p>
-      <div style={{ width: 360 }}>
-        <SponsoredCard state={state} />
-      </div>
-    </div>
-  )
-}
-
+/**
+ * The widget's React root. Starts in the skeleton state, then swaps to
+ * `loaded`/`noFill` once the host's `ui/notifications/tool-result` message
+ * for this call arrives -- see mcpBridge.ts for the message contract and
+ * the ported handshake/click-redirect behaviors.
+ *
+ * Note: the "Powered by Lulu Ads" footer (design doc: renders once,
+ * outside the skeleton/loaded/noFill swap, in all three states) is
+ * intentionally NOT added here. Task 3's brief scopes this file to state
+ * wiring + rendering `<SponsoredCard state={state} />` only, and no task
+ * brief in the plan (checked Task 3 and Task 4) explicitly owns building
+ * the footer shell -- flagged as a gap in the task-3 report rather than
+ * guessed at here.
+ */
 function App() {
-  return (
-    <div style={{ padding: 24, fontFamily: "-apple-system, sans-serif" }}>
-      <Demo title="loading" state={{ kind: "loading" }} />
-      <Demo title="loaded (no logo)" state={loadedState} />
-      <Demo title="loaded (with logo)" state={loadedWithLogoState} />
-      <Demo title="noFill (renders nothing below)" state={{ kind: "noFill" }} />
-    </div>
-  )
+  const [state, setState] = useState<SponsoredCardState>({ kind: "loading" })
+
+  useEffect(() => {
+    // MCP Apps handshake -- must fire regardless of whether/when a
+    // tool-result ever arrives, so the host un-hides the iframe at all.
+    initHandshake()
+
+    // CTA clicks (SponsoredCard's Button carries data-url={url}) redirect
+    // through ui/open-link instead of a raw navigation, which the
+    // sandboxed iframe would otherwise swallow.
+    const unsubscribeClicks = initClickRedirect()
+
+    const unsubscribeToolResult = listenForToolResult((sponsored) => {
+      setState(sponsored ? { kind: "loaded", ...sponsored } : { kind: "noFill" })
+    })
+
+    return () => {
+      unsubscribeClicks()
+      unsubscribeToolResult()
+    }
+  }, [])
+
+  return <SponsoredCard state={state} />
 }
 
 export default App
