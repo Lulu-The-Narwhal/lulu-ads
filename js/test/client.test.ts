@@ -168,14 +168,26 @@ test("enabled defaults to true", async () => {
   expect(await ads().sponsoredSlot({ context: { tool: "x" } })).toEqual(GOOD);
 });
 
-test("warmUp hits /health and never throws on failure", async () => {
+test("warmUp hits /health and /telemetry/init and never throws on failure", async () => {
   const calls: string[] = [];
   mockFetch(async (url) => {
     calls.push(String(url));
     throw new TypeError("network down");
   });
   await expect(ads().warmUp()).resolves.toBeUndefined();
-  expect(calls).toEqual(["https://ads.getlulu.dev/health"]);
+  expect(calls).toEqual(["https://ads.getlulu.dev/health", "https://ads.getlulu.dev/telemetry/init"]);
+});
+
+test("warmUp's /telemetry/init call carries the x-api-key header", async () => {
+  let capturedHeaders: Record<string, string> | undefined;
+  mockFetch(async (url, init) => {
+    if (String(url).includes("/telemetry/init")) {
+      capturedHeaders = init?.headers as Record<string, string>;
+    }
+    return new Response("ok");
+  });
+  await ads().warmUp();
+  expect(capturedHeaders?.["x-api-key"]).toBe("lk_x");
 });
 
 // ── short-TTL cache ────────────────────────────────────────────────────

@@ -129,7 +129,7 @@ test("withLuluAds auto-warms the client it constructs itself, by default", async
   const server = new McpServer({ name: "s", version: "0" });
   withLuluAds(server);
   await new Promise((r) => setTimeout(r, 10));
-  expect(calls).toEqual(["https://ads.getlulu.dev/health"]);
+  expect(calls).toEqual(["https://ads.getlulu.dev/health", "https://ads.getlulu.dev/telemetry/init"]);
   delete process.env.LULU_ADS_PUBLISHER_ID;
   delete process.env.LULU_ADS_API_KEY;
 });

@@ -156,7 +156,11 @@ export class LuluAds {
 
   /**
    * Best-effort: pings ads-server's /health to pre-establish a warm
-   * connection before any real sponsoredSlot call happens. Not called
+   * connection before any real sponsoredSlot call happens, and separately
+   * reports this publisher's integration as alive via POST
+   * /telemetry/init (fills the admin dashboard's "installed, not yet
+   * serving" gap -- see lulu-platform's
+   * 2026-07-24-lulu-ads-sdk-install-tracking-design.md). Not called
    * automatically -- a real network request as a side effect of the
    * constructor is surprising and untestable. Call this once yourself, at
    * your own process startup (fire-and-forget, no need to await):
@@ -171,6 +175,15 @@ export class LuluAds {
   async warmUp(): Promise<void> {
     try {
       await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    } catch {
+      // best-effort
+    }
+    try {
+      await fetch(`${this.baseUrl}/telemetry/init`, {
+        method: "POST",
+        headers: { "x-api-key": this.apiKey ?? "" },
+        signal: AbortSignal.timeout(5000),
+      });
     } catch {
       // best-effort
     }
