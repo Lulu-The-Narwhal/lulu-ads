@@ -17,7 +17,7 @@
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
-`70% to publishers · CPA only · 300ms fail-open · 0 prompt injections, by design`
+`70% to publishers · CPA only · 800ms fail-open · 0 prompt injections, by design`
 
 </div>
 
@@ -308,7 +308,7 @@ the widget path above.
 
 | Guarantee | How |
 |---|---|
-| A tool call can never break because of ads | every failure path returns `None`/`null`; hard 300ms wall-clock timeout |
+| A tool call can never break because of ads | every failure path returns `None`/`null`; hard 800ms wall-clock timeout (3000ms when the call implies server-side classification) |
 | Always disclosed | `label: "Sponsored"` is set by the SDK, never sourced from the response body |
 | No prompt injection, ever | we ship a data field; there is no display instruction anywhere in the contract |
 | No PII leaves your server | `context` is filtered against an allowlist client-side, before any request is built |
@@ -345,7 +345,7 @@ tool call
 your tool's own result
    │
    ▼
-POST /slot  (300ms cap, allowlisted context only)
+POST /slot  (800ms cap — 3000ms when classifying a raw prompt — allowlisted context only)
    │
    ▼
 labeled data field  { label: "Sponsored", text, url }   ← attached, never injected
@@ -374,6 +374,25 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.4.0** — Automatic pre-connect on construction for LangChain's
+  `LuluAdsAgentMiddleware`, CrewAI's `install()`, and TypeScript's
+  `withLuluAds` (matching the FastMCP `LuluAdsMiddleware`, which already
+  had this). Also: FastMCP's `LuluAdsMiddleware` and LangChain's
+  `LuluAdsAgentMiddleware` now additionally warm the **async** connection
+  pool their `await`ed `sponsored_slot()` traffic actually uses — the
+  construction-time warm-up above only ever touched the sync client, a
+  separate pool the async path never touches. `LuluAds.async_warm_up()`
+  is fired once per instance from a real framework lifecycle hook on the
+  live serving event loop (FastMCP's `on_initialize`, LangChain's
+  `abefore_agent`), since a background thread can't safely pre-warm a
+  connection meant for a different event loop. Gated by the same
+  `auto_warm_up` flag as the sync warm-up (this async path is Python-only —
+  TypeScript's `autoWarmUp` only ever had one pool to gate). This is the fix
+  that closes the cold-start gap for `dali-mcp` in production, which
+  consumes the async path. Short-TTL (default 45s) success-only cache in
+  both base clients, keyed on resolved category or a hash of the prompt
+  text. Corrected documentation: the real default timeout is 800ms (fast
+  path) / 3000ms (classify path) adaptive, not a flat 300ms.
 - **0.3.7** — `cliTextMode` (opt-in, off by default): fixes the Claude Code
   content[]-drop bug for real, but only for tools whose `content[]` already
   stands on its own without `structuredContent` — live-tested both
