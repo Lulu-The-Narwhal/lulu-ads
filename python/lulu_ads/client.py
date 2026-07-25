@@ -187,13 +187,17 @@ class LuluAds:
 
     def warm_up(self) -> None:
         """Best-effort: pings ads-server's /health to pre-establish a warm
-        TLS connection before any real sponsored_slot call happens. Not
-        called automatically -- firing a real network request as a side
-        effect of __init__ is surprising and untestable (a test setting
-        ._transport right after construction, the normal pattern in this
-        SDK's own test suite, would otherwise race a background thread
-        already using the real network). Call this once yourself, in a
-        background thread, at your own process startup:
+        TLS connection before any real sponsored_slot call happens, and
+        separately reports this publisher's integration as alive via
+        POST /telemetry/init (fills the admin dashboard's "installed, not
+        yet serving" gap -- see lulu-platform's
+        2026-07-24-lulu-ads-sdk-install-tracking-design.md). Not called
+        automatically -- firing a real network request as a side effect of
+        __init__ is surprising and untestable (a test setting ._transport
+        right after construction, the normal pattern in this SDK's own
+        test suite, would otherwise race a background thread already using
+        the real network). Call this once yourself, in a background
+        thread, at your own process startup:
 
             client = LuluAds(...)
             threading.Thread(target=client.warm_up, daemon=True).start()
@@ -207,6 +211,15 @@ class LuluAds:
             client.get(f"{self._base_url}/health", timeout=5.0)
         except Exception:
             pass
+        try:
+            client = self._ensure_sync_client()
+            client.post(
+                f"{self._base_url}/telemetry/init",
+                headers={"x-api-key": self._api_key or ""},
+                timeout=5.0,
+            )
+        except Exception:
+            pass
 
     async def async_warm_up(self) -> None:
         """Async counterpart to warm_up() -- pre-establishes a warm
@@ -218,11 +231,22 @@ class LuluAds:
         Callers must await this from the SAME event loop that will later
         call sponsored_slot() -- in practice, from a real in-loop
         lifecycle hook (FastMCP's on_initialize, LangChain's
-        abefore_agent), never from a background thread. Never raises.
+        abefore_agent), never from a background thread. Also reports this
+        publisher's integration as alive via POST /telemetry/init, same as
+        warm_up(). Never raises.
         """
         try:
             client = self._ensure_async_client()
             await client.get(f"{self._base_url}/health", timeout=5.0)
+        except Exception:
+            pass
+        try:
+            client = self._ensure_async_client()
+            await client.post(
+                f"{self._base_url}/telemetry/init",
+                headers={"x-api-key": self._api_key or ""},
+                timeout=5.0,
+            )
         except Exception:
             pass
 

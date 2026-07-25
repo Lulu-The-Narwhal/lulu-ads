@@ -238,7 +238,7 @@ async def test_fast_default_applies_even_with_prompt_when_category_explicit():
     assert out is None
 
 
-def test_warm_up_hits_health_endpoint_and_never_raises():
+def test_warm_up_hits_health_and_telemetry_endpoints_and_never_raises():
     calls = []
 
     def handler(request):
@@ -248,7 +248,21 @@ def test_warm_up_hits_health_endpoint_and_never_raises():
     ads = LuluAds("pub_x", "key_x", base_url="https://ads.example.com")
     ads._transport = httpx.MockTransport(handler)
     ads.warm_up()
-    assert calls == ["https://ads.example.com/health"]
+    assert calls == ["https://ads.example.com/health", "https://ads.example.com/telemetry/init"]
+
+
+def test_warm_up_telemetry_call_carries_api_key_header():
+    captured = {}
+
+    def handler(request):
+        if "/telemetry/init" in str(request.url):
+            captured["x-api-key"] = request.headers.get("x-api-key")
+        return httpx.Response(200, text="ok")
+
+    ads = LuluAds("pub_x", "key_x", base_url="https://ads.example.com")
+    ads._transport = httpx.MockTransport(handler)
+    ads.warm_up()
+    assert captured["x-api-key"] == "key_x"
 
 
 def test_sync_fast_default_times_out_without_prompt():
@@ -269,7 +283,7 @@ def test_warm_up_never_raises_on_failure():
     ads.warm_up()  # must not raise
 
 
-async def test_async_warm_up_hits_health_endpoint_and_never_raises():
+async def test_async_warm_up_hits_health_and_telemetry_endpoints_and_never_raises():
     calls = []
 
     def handler(request):
@@ -279,7 +293,21 @@ async def test_async_warm_up_hits_health_endpoint_and_never_raises():
     ads = LuluAds("pub_x", "key_x", base_url="https://ads.example.com")
     ads._transport = httpx.MockTransport(handler)
     await ads.async_warm_up()
-    assert calls == ["https://ads.example.com/health"]
+    assert calls == ["https://ads.example.com/health", "https://ads.example.com/telemetry/init"]
+
+
+async def test_async_warm_up_telemetry_call_carries_api_key_header():
+    captured = {}
+
+    def handler(request):
+        if "/telemetry/init" in str(request.url):
+            captured["x-api-key"] = request.headers.get("x-api-key")
+        return httpx.Response(200, text="ok")
+
+    ads = LuluAds("pub_x", "key_x", base_url="https://ads.example.com")
+    ads._transport = httpx.MockTransport(handler)
+    await ads.async_warm_up()
+    assert captured["x-api-key"] == "key_x"
 
 
 async def test_async_warm_up_never_raises_on_failure():
