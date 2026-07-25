@@ -88,6 +88,13 @@ export function SponsoredCard({ state }: { state: SponsoredCardState }) {
             src={logoDataUri}
             alt=""
             className="h-7 w-7 shrink-0 rounded-lg bg-white/90 object-contain p-0.5"
+            onError={(e) => {
+              // A raw (non-data:) logo_url can be CSP-blocked inside a real
+              // host's sandboxed iframe (deferred CSP risk, see Task 1/6
+              // findings) -- degrade invisibly instead of showing a broken-
+              // image glyph.
+              e.currentTarget.style.display = "none"
+            }}
           />
         ) : null}
         <div className="text-[13px] leading-[1.45]">

@@ -19,9 +19,13 @@
  *      sandboxed iframe (no allow-popups).
  *
  * Deliberately NOT ported: re-sending `ui/notifications/size-changed` on
- * every incoming message. Task 1 live-tested that and it broke rendering
- * -- size-changed is only sent once, as part of the initial handshake,
- * exactly like the original.
+ * every incoming message. Task 1 live-tested that and it broke rendering.
+ * `size-changed` is sent at most twice, each guarded to fire exactly
+ * once: once as part of the initial handshake (measuring the skeleton),
+ * and once more on the loading->settled transition (measuring the real
+ * `loaded`/`noFill` card, which has a different height) -- see
+ * `notifySizeChanged` and its call site in App.tsx. That is not the
+ * "every incoming message" pattern Task 1 found broken.
  */
 
 /** Parsed shape SponsoredCard's "loaded" state needs. `cta` isn't part of
@@ -122,11 +126,31 @@ export function listenForToolResult(onResult: (sponsored: SponsoredData | null) 
 }
 
 /**
+ * Measures the current document height and posts a single
+ * `ui/notifications/size-changed` to the host. Shared by `initHandshake`
+ * (measures the initial skeleton) and the one-time loading->settled resend
+ * App.tsx triggers once real tool-result data swaps the skeleton for the
+ * `loaded`/`noFill` card -- see the module docstring. No-ops if the
+ * measured height is falsy (e.g. unlaid-out in a test environment).
+ */
+export function notifySizeChanged(): void {
+  const h = document.body.scrollHeight
+  if (h) {
+    window.parent.postMessage(
+      { jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { width: 400, height: h } },
+      "*"
+    )
+  }
+}
+
+/**
  * MCP Apps handshake: sends `ui/notifications/initialized` once the page
  * has loaded (or immediately if it already has, plus a 300ms fallback
  * timer in case the `load` event was already missed). Also sends one
- * `ui/notifications/size-changed` alongside it, matching the original --
- * this fires once here, never again on subsequent messages.
+ * `ui/notifications/size-changed` alongside it (via `notifySizeChanged`),
+ * matching the original -- this fires once here, never again on
+ * subsequent messages (the one exception being the single loading->settled
+ * resend App.tsx triggers separately, see `notifySizeChanged`'s doc).
  */
 export function initHandshake(): void {
   let sent = false
@@ -134,13 +158,7 @@ export function initHandshake(): void {
     if (sent) return
     sent = true
     window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }, "*")
-    const h = document.body.scrollHeight
-    if (h) {
-      window.parent.postMessage(
-        { jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { width: 400, height: h } },
-        "*"
-      )
-    }
+    notifySizeChanged()
   }
   if (document.readyState === "complete") {
     notifyInitialized()
