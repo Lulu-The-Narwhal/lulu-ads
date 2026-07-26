@@ -1,5 +1,4 @@
 import type { CSSProperties } from "react"
-import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 
@@ -10,9 +9,14 @@ import { Button } from "@/components/ui/button"
  * disclosure label -- just built from shadcn/ui primitives instead of a
  * template literal.
  *
- * The footer ("Powered by Lulu Ads") is intentionally NOT part of this
- * component. It renders once in the wrapping HTML shell around
- * SponsoredCard, regardless of state, and is never itself skeletonized.
+ * This component renders only the INNER content for each state -- the
+ * label/skeleton/logo/text row, never an outer `<Card>`. App.tsx owns a
+ * single persistent `<Card style={cardStyle}>` that wraps this component's
+ * output together with `<Footer />` in every state (loading/loaded/
+ * noFill), so the orange gradient card shell and the footer's divider
+ * never flicker in or out of existence -- only the inner content swaps.
+ * `cardStyle` is exported below for App.tsx to use on that persistent
+ * wrapper.
  */
 export type SponsoredCardState =
   | { kind: "loading" }
@@ -38,7 +42,7 @@ const ACCENT = "#E07A00"
 const ACCENT_LIGHT = "#F5A623"
 const ACCENT_DARK = "#B55E00"
 
-const cardStyle: CSSProperties = {
+export const cardStyle: CSSProperties = {
   background: `linear-gradient(135deg, var(--lulu-accent-light, ${ACCENT_LIGHT}) 0%, var(--lulu-accent, ${ACCENT}) 55%, var(--lulu-accent-dark, ${ACCENT_DARK}) 100%)`,
   border: "1px solid rgba(255, 255, 255, 0.22)",
   boxShadow:
@@ -55,33 +59,26 @@ export function SponsoredCard({ state }: { state: SponsoredCardState }) {
 
   if (state.kind === "loading") {
     return (
-      <Card
-        className="gap-0 rounded-[14px] bg-muted/60 p-3.5 px-4 py-3.5 ring-0"
-        aria-busy="true"
-        aria-label="Loading sponsored content"
-      >
+      <>
         {/* label line */}
-        <Skeleton className="mb-2 h-2.5 w-16 rounded-sm" />
+        <Skeleton className="mb-2 h-2.5 w-16 rounded-sm bg-white/30" />
         <div className="flex items-start gap-2.5">
           {/* logo block */}
-          <Skeleton className="h-7 w-7 shrink-0 rounded-lg" />
+          <Skeleton className="h-7 w-7 shrink-0 rounded-lg bg-white/30" />
           {/* text lines */}
           <div className="flex-1 space-y-1.5 pt-0.5">
-            <Skeleton className="h-3 w-full rounded-sm" />
-            <Skeleton className="h-3 w-3/5 rounded-sm" />
+            <Skeleton className="h-3 w-full rounded-sm bg-white/30" />
+            <Skeleton className="h-3 w-3/5 rounded-sm bg-white/30" />
           </div>
         </div>
-      </Card>
+      </>
     )
   }
 
   const { label, text, url, logoDataUri, cta } = state
 
   return (
-    <Card
-      className="gap-0 rounded-[14px] border-0 p-3.5 px-4 py-3.5 ring-0"
-      style={cardStyle}
-    >
+    <>
       <div
         className="mb-[5px] text-[10px] font-extrabold tracking-[0.09em] uppercase"
         style={{ opacity: 0.92 }}
@@ -114,6 +111,6 @@ export function SponsoredCard({ state }: { state: SponsoredCardState }) {
           </Button>
         </div>
       </div>
-    </Card>
+    </>
   )
 }

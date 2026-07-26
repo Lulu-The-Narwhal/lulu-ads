@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { SponsoredCard, type SponsoredCardState } from "./SponsoredCard"
+import { Card } from "@/components/ui/card"
+import { SponsoredCard, type SponsoredCardState, cardStyle } from "./SponsoredCard"
 import { Footer } from "./Footer"
 import {
   applyAccentTheme,
@@ -16,10 +17,13 @@ import {
  * for this call arrives -- see mcpBridge.ts for the message contract and
  * the ported handshake/click-redirect behaviors.
  *
- * Renders `<Footer />` unconditionally, as a sibling of `<SponsoredCard>`
- * -- outside the loading/loaded/noFill swap, present in every state
- * (including `noFill`, where `SponsoredCard` itself renders nothing). See
- * Footer.tsx for why: this was a real gap no task before Task 4 built.
+ * Owns a single persistent `<Card style={cardStyle}>` shell -- the orange
+ * gradient card -- that renders in every state (loading/loaded/noFill),
+ * nesting both `<SponsoredCard>` (the swappable inner content: skeleton
+ * bars, the loaded row, or nothing) and `<Footer />` inside it. This
+ * matches the original hand-written widget's layout, where the footer sits
+ * inside the card and inherits its cream-on-orange text color via normal
+ * CSS inheritance -- see Footer.tsx.
  */
 function App() {
   // Registration-time defaults baked into the compiled bundle by
@@ -81,10 +85,15 @@ function App() {
   }, [state.kind])
 
   return (
-    <>
+    <Card
+      className="gap-0 rounded-[14px] border-0 p-3.5 px-4 py-3.5 ring-0"
+      style={cardStyle}
+      aria-busy={state.kind === "loading"}
+      aria-label={state.kind === "loading" ? "Loading sponsored content" : undefined}
+    >
       <SponsoredCard state={state} />
       <Footer />
-    </>
+    </Card>
   )
 }
 
