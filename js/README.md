@@ -206,23 +206,26 @@ broken platform-wide before that fix landed, so treat any "should render"
 claim (including this one, elsewhere) as unverified until you've checked
 it live in your own host.
 
-`text`/`url`/`logo` passed to `registerSponsoredWidget()` become a
-starting "house ad" — shown immediately as a shadcn `<Skeleton>` on load,
-then swapped for that content only until/unless a live tool call arrives.
-On every real tool call, the widget listens for the MCP Apps host's own
-`ui/notifications/tool-result` push (a fresh iframe is mounted per call,
-not reused — "per call, not per tool" is a protocol guarantee, nothing
-had to be built server-side to get it) and re-renders with *that call's*
-`structuredContent.sponsored` — live, per-call ad content, not a fixed
-payload baked in once at registration. A host that never sends the
-notification (or a call with no `sponsored` field, the normal fail-open
-case) just keeps showing the registration-time house ad/skeleton
-indefinitely, so this is purely additive over the old fully-static
-behavior. Card, skeleton, and the "Powered by Lulu Ads" footer are one
-compiled React/shadcn bundle shared byte-for-byte between the Python and
-TypeScript SDKs (`js/widget-src/`, checked in, embedded by both
-languages) — the footer renders once, immediately, and is never itself
-part of the skeleton→card swap.
+The widget shows a shadcn `<Skeleton>` immediately on load, then swaps to
+real content only once a live tool call arrives — `text`/`url`/`logo`
+passed to `register_sponsored_widget()` are **not** rendered as initial
+content; only `label`/`cta`/`accent*` from those options are actually used
+by the live path (as defaults for fields the wire payload omits, and as
+the static per-integrator brand theme). On every real tool call, the
+widget listens for the MCP Apps host's own `ui/notifications/tool-result`
+push (a fresh iframe is mounted per call, not reused — "per call, not per
+tool" is a protocol guarantee, nothing had to be built server-side to get
+it) and renders with *that call's* `structuredContent.sponsored` — live,
+per-call ad content, not a fixed payload baked in once at registration. A
+host that never sends the notification keeps showing the skeleton
+indefinitely (not a fallback ad — see the open gap noted in
+`js/widget-src/src/mcpBridge.ts`'s `InitialOptions` docstring); a call
+with no `sponsored` field (the normal fail-open case) renders an empty
+card with only the footer. Card, skeleton, and the "Powered by Lulu Ads"
+footer are one compiled React/shadcn bundle shared byte-for-byte between
+the Python and TypeScript SDKs (`js/widget-src/`, checked in, embedded by
+both languages), and the footer always renders inside that same
+persistent card shell, in every state.
 
 ### Logos
 
