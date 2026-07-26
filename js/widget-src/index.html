@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- No favicon <link> here on purpose: this document's only real
+         destination is embedded (as an MCP Apps resource / iframe srcdoc)
+         inside sponsoredWidgetHtml()'s output, where /favicon.svg would be
+         an external, unresolvable, 404-ing reference -- this build must
+         stay fully self-contained (see vite.config.ts). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>widget-src</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Per-call/per-integrator options placeholder. Vite/React never
+         touch this element (it lives outside #root, untouched static
+         markup), so the token in the data-opts attribute below survives
+         the build verbatim -- sponsoredWidgetHtml() (js/src/widget.ts)
+         does a plain string replace of just that token (not the whole
+         attribute) with an HTML-attribute-escaped JSON blob before
+         returning the compiled HTML via replaceAll (all occurrences).
+         Do NOT spell the token out again literally anywhere else in this
+         file (e.g. another comment) -- replaceAll would substitute every
+         occurrence, corrupting any second copy of the token text too.
+         mcpBridge.ts's `readInitialOptions()` reads this back via
+         `getAttribute` (never innerHTML), which the browser decodes for
+         free -- see its module docstring for why this is XSS-safe. -->
+    <div id="lulu-ads-opts" hidden data-opts="__LULU_ADS_OPTS__"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

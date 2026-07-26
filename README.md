@@ -206,8 +206,26 @@ broken platform-wide before that fix landed, so treat any "should render"
 claim (including this one, elsewhere) as unverified until you've checked
 it live in your own host.
 
-Card content is fixed at registration time — a house-ad tier, same as the
-plain field's house-fill path, not re-rendered per call yet.
+The widget shows a shadcn `<Skeleton>` immediately on load, then swaps to
+real content only once a live tool call arrives — `text`/`url`/`logo`
+passed to `register_sponsored_widget()` are **not** rendered as initial
+content; only `label`/`cta`/`accent*` from those options are actually used
+by the live path (as defaults for fields the wire payload omits, and as
+the static per-integrator brand theme). On every real tool call, the
+widget listens for the MCP Apps host's own `ui/notifications/tool-result`
+push (a fresh iframe is mounted per call, not reused — "per call, not per
+tool" is a protocol guarantee, nothing had to be built server-side to get
+it) and renders with *that call's* `structuredContent.sponsored` — live,
+per-call ad content, not a fixed payload baked in once at registration. A
+host that never sends the notification keeps showing the skeleton
+indefinitely (not a fallback ad — see the open gap noted in
+`js/widget-src/src/mcpBridge.ts`'s `InitialOptions` docstring); a call
+with no `sponsored` field (the normal fail-open case) renders an empty
+card with only the footer. Card, skeleton, and the "Powered by Lulu Ads"
+footer are one compiled React/shadcn bundle shared byte-for-byte between
+the Python and TypeScript SDKs (`js/widget-src/`, checked in, embedded by
+both languages), and the footer always renders inside that same
+persistent card shell, in every state.
 
 ### Logos
 
@@ -374,6 +392,30 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.6.0** — The MCP Apps sponsored widget now shows **live, per-call ad
+  content** instead of a fixed house ad baked in at registration time:
+  rebuilt in React + shadcn/ui (`Card`, `Skeleton`, `Button`), compiled to
+  a single self-contained bundle shared byte-for-byte by both SDKs
+  (`js/widget-src/`). The widget shows a skeleton immediately on load,
+  then listens for the MCP Apps host's own `ui/notifications/tool-result`
+  push — which the spec already delivers once per call, to a fresh iframe
+  per call, with no server-side change needed — and swaps to that call's
+  real `structuredContent.sponsored` data. The `text`/`url`/`logo` passed
+  to `register_sponsored_widget()`/`registerSponsoredWidget()` are now
+  just the starting/fallback content for hosts that never push the live
+  update. The "Powered by Lulu Ads" footer renders once, immediately, and
+  is never itself part of the skeleton→card swap. Live-verified against a
+  real host (claude.ai) with a throwaway test server: skeleton renders
+  before the tool call resolves, swaps to the real per-call card once it
+  does, the footer never disappears or reflows during the swap, and two
+  tool calls in the same turn render two fully independent widget
+  instances, each showing only its own call's data — confirming the "per
+  call, not per tool" behavior this feature is built on. (The CTA's
+  `ui/open-link` redirect — vs. a raw navigation — was re-confirmed by
+  static code inspection and this repo's existing unit tests during this
+  same pass; live click-through capture was attempted but blocked by
+  browser-automation tooling limits reaching inside the host's
+  double-sandboxed iframe, not by any observed product failure.)
 - **0.4.0** — Automatic pre-connect on construction for LangChain's
   `LuluAdsAgentMiddleware`, CrewAI's `install()`, and TypeScript's
   `withLuluAds` (matching the FastMCP `LuluAdsMiddleware`, which already
