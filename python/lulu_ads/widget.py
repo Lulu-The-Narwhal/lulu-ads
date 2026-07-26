@@ -5,7 +5,7 @@ hosts that support the MCP Apps extension (io.modelcontextprotocol/ui),
 instead of relying on the model's own judgment to format raw JSON nicely.
 The plain field always stays too — every host that doesn't support MCP
 Apps yet gets the harmless data fallback; this is additive, not a
-replacement.
+replacement. Port of js/src/widget.ts — keep both in sync.
 
 Getting a host to actually place the iframe takes two things beyond
 spec-correct registration (undocumented, self-computable, reverse-engineered
@@ -49,19 +49,49 @@ Usage:
     def search(...): ...
 
 `endpoint_url` must be the exact public MCP connector URL clients connect
-to. The card content is fixed at registration time (like a house ad), not
-re-rendered per tool call — the same tier of sophistication as the
-plain-JSON fallback's house-fill path. Per-call dynamic ad content in the
-widget itself is a roadmap item, not implemented here.
+to. `resource_uri` itself is still registered once, statically, at
+registration time -- but the compiled widget bundle now *listens* for the
+live `ui/notifications/tool-result` message the MCP Apps host sends on
+every tool call (a fresh iframe per call is already how the protocol
+works; nothing server-side had to change) and swaps its content to that
+call's real `structuredContent.sponsored` data. `text`/`url`/`logo_data_uri`
+passed here become that starting "house ad" content baked into the bundle
+at render time -- shown only until/unless a live `tool-result` ever
+arrives in a given host (a host that doesn't push it at all would keep
+showing this baked content indefinitely, same as the old fully-static
+behavior); `label`/`cta`/`accent*` additionally become the defaults the
+live path falls back to for fields the wire payload doesn't carry (`cta`,
+never; `label`, when omitted) and the static per-integrator brand theme
+respectively.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
-import html as _html
+import json
 import logging
 
+from lulu_ads._generated_widget_bundle import WIDGET_BUNDLE_HTML
+
 _log = logging.getLogger("lulu_ads.widget")
+
+_OPTS_PLACEHOLDER = "__LULU_ADS_OPTS__"
+
+
+def _escape_html(s: str) -> str:
+    """Mirrors widget.ts's `escapeHtml` byte-for-byte -- deliberately not
+    `html.escape()`, which escapes `'` as the numeric-hex `&#x27;` instead
+    of TS's decimal `&#39;`. Both decode identically in any browser, but
+    the whole point of this port is the *rendered output* staying
+    byte-identical between languages, not just browser-equivalent.
+    """
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
 
 _DEFAULT_RESOURCE_URI = "ui://lulu-ads/sponsored.html"
 
@@ -141,104 +171,55 @@ def sponsored_widget_html(
     accent_dark: str = _ACCENT_DARK,
 ) -> str:
     """Renders the Lulu Ads sponsored-card widget: a floating, rounded,
-    gradient card with a disclosed label. Ships data baked into markup —
-    no instruction telling any model or host what to do with it.
+    gradient card with a disclosed label, live-swappable per tool call. The
+    markup/CSS/JS themselves come from the compiled `js/widget-src/`
+    React/shadcn build (`_generated_widget_bundle.py` -- a single
+    self-contained HTML document, everything inlined, no external
+    requests, kept byte-identical to the TypeScript side's
+    `generatedWidgetBundle.ts` by `scripts/sync-widget-bundle.sh`). This
+    function's job is narrower than it used to be: apply the same defaults
+    the old hand-written template applied, then substitute the result --
+    as an HTML-attribute-escaped JSON blob, so a malicious `text`/`url`
+    still can't break out of the markup (mirrors `widget.ts`'s
+    `sponsoredWidgetHtml()` and the widget bundle's `mcpBridge.ts`'s
+    `readInitialOptions`, which reads this back via `getAttribute`, never
+    `innerHTML`) -- into the bundle's `__LULU_ADS_OPTS__` placeholder.
 
     `logo_data_uri` must already be a `data:` URI (see `fetch_logo_data_uri`
     / `register_sponsored_widget`'s `logo` param) -- a raw `https://` URL
     here would be silently dropped by the widget sandbox's CSP.
     """
-    text_html = _html.escape(text)
-    cta_html = _html.escape(cta)
-    url_attr = _html.escape(url, quote=True)
-    label_html = _html.escape(label)
-    logo_html = (
-        f'<img class="logo" src="{_html.escape(logo_data_uri, quote=True)}" alt="">'
-        if logo_data_uri else ""
-    )
-    return f"""<!doctype html>
-<html><head><meta charset="utf-8">
-<style>
-  :root {{ color-scheme: light dark; }}
-  html, body {{ margin: 0; padding: 0; background: transparent; }}
-  body {{ padding: 4px; font-family: -apple-system, "Segoe UI", sans-serif; }}
-  .card {{
-    padding: 14px 16px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, {accent_light} 0%, {accent} 55%, {accent_dark} 100%);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 10px 24px -10px rgba(224, 122, 0, 0.65);
-    color: #FFF8EC;
-  }}
-  .label {{
-    font-size: 10px; font-weight: 800; letter-spacing: .09em;
-    text-transform: uppercase; opacity: .92; margin-bottom: 5px;
-  }}
-  .row {{ display: flex; align-items: flex-start; gap: 10px; }}
-  .logo {{
-    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
-    background: rgba(255, 255, 255, 0.9); object-fit: contain; padding: 2px;
-  }}
-  .text {{ font-size: 13px; line-height: 1.45; }}
-  a {{ color: #FFFFFF; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }}
-  .footer {{
-    margin-top: 9px; padding-top: 7px;
-    border-top: 1px solid rgba(255, 255, 255, 0.25);
-    font-size: 10px; opacity: .8;
-  }}
-  .footer a {{ font-weight: 600; text-decoration: none; }}
-  .footer a:hover {{ text-decoration: underline; }}
-</style></head>
-<body>
-  <div class="card">
-    <div class="label">{label_html}</div>
-    <div class="row">
-      {logo_html}
-      <div class="text">{text_html} <a href="{url_attr}" target="_blank" rel="noopener">{cta_html}</a></div>
-    </div>
-    <div class="footer">Powered by <a href="https://getlulu.dev" target="_blank" rel="noopener">Lulu Ads</a></div>
-  </div>
-<script>
-  (function () {{
-    // MCP Apps handshake: the host keeps the iframe reserved-but-hidden until
-    // it receives ui/notifications/initialized (modelcontextprotocol/ext-apps#671).
-    // Sent on load plus a short fallback timer so a missed load event can't
-    // deadlock the widget into permanently-hidden.
-    var sent = false;
-    function notifyInitialized() {{
-      if (sent) return;
-      sent = true;
-      window.parent.postMessage({{ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {{}} }}, "*");
-      var h = document.body.scrollHeight;
-      if (h) {{
-        window.parent.postMessage(
-          {{ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: {{ width: 400, height: h }} }},
-          "*"
-        );
-      }}
-    }}
-    window.addEventListener("load", notifyInitialized);
-    setTimeout(notifyInitialized, 300);
+    resolved_opts: dict[str, str] = {
+        "text": text,
+        "url": url,
+        "label": label,
+        "cta": cta,
+    }
+    # A key is omitted entirely (not set to None/null) when logo_data_uri
+    # is absent -- matches the TS side's JSON.stringify, which drops
+    # undefined-valued keys, and the old template's "no <img> element at
+    # all when logoDataUri is absent" contract.
+    if logo_data_uri is not None:
+        resolved_opts["logoDataUri"] = logo_data_uri
+    resolved_opts["accent"] = accent
+    resolved_opts["accentLight"] = accent_light
+    resolved_opts["accentDark"] = accent_dark
 
-    // Plain <a target="_blank"> clicks get silently swallowed inside the
-    // sandboxed MCP Apps iframe (no allow-popups) — right-click "open in
-    // new tab" bypasses the iframe's JS entirely, which is why that alone
-    // worked. The sanctioned path is ui/open-link, a real JSON-RPC request
-    // the host handles outside the sandbox (modelcontextprotocol/ext-apps
-    // spec.types.ts: McpUiOpenLinkRequest). href/target stay on the <a> as
-    // a harmless fallback for any host that doesn't run this JS.
-    document.querySelectorAll("a[href]").forEach(function (link) {{
-      link.addEventListener("click", function (e) {{
-        e.preventDefault();
-        window.parent.postMessage(
-          {{ jsonrpc: "2.0", id: "open-link-" + Date.now(), method: "ui/open-link", params: {{ url: link.href }} }},
-          "*"
-        );
-      }});
-    }});
-  }})();
-</script>
-</body></html>"""
+    # separators=(",", ":") + ensure_ascii=False mirror JSON.stringify's
+    # compact, non-escaping-of-unicode output exactly -- json.dumps's
+    # defaults (", "/": " separators, \uXXXX-escaping every non-ASCII
+    # char) would otherwise make the injected opts blob diverge from the
+    # TS side's byte-for-byte, even though both decode to the same object.
+    opts_json = json.dumps(resolved_opts, separators=(",", ":"), ensure_ascii=False)
+    opts_attr = _escape_html(opts_json)
+
+    # str.replace already replaces every occurrence by default (unlike
+    # JS's default .replace(), which only replaces the first) -- this is
+    # already the equivalent of the TS side's explicit .replaceAll(), see
+    # widget.ts's comment on why a single-occurrence replace would be
+    # unsafe if the placeholder token is ever spelled out again elsewhere
+    # in the bundle (e.g. in a comment).
+    return WIDGET_BUNDLE_HTML.replace(_OPTS_PLACEHOLDER, opts_attr)
 
 
 def register_sponsored_widget(

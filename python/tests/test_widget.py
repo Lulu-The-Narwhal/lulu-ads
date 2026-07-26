@@ -1,4 +1,6 @@
 import hashlib
+import json
+import re
 
 import httpx
 from fastmcp import Client, FastMCP
@@ -10,6 +12,31 @@ from lulu_ads.widget import (
     register_sponsored_widget,
     sponsored_widget_html,
 )
+
+
+def _extract_injected_opts(html: str) -> dict:
+    """Pulls the per-call options blob back out of a rendered widget HTML
+    string -- the compiled React bundle now renders its actual card
+    content client-side from this data (see js/widget-src's
+    mcpBridge.ts's `readInitialOptions`), so `sponsored_widget_html()`'s
+    returned markup no longer contains a literal `<img class="logo">`/
+    label/etc. the way the old hand-written template did -- this is the
+    equivalent "did the right data make it into the output" check for the
+    new mechanism. Mirrors the browser's own HTML-attribute-value
+    decoding (never innerHTML/eval), same as the real
+    `readInitialOptions` does.
+    """
+    match = re.search(r'id="lulu-ads-opts"[^>]*\sdata-opts="([^"]*)"', html)
+    assert match, "no #lulu-ads-opts data-opts attribute found in rendered widget HTML"
+    decoded = (
+        match.group(1)
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+    )
+    return json.loads(decoded)
 
 
 def test_claude_apps_domain_is_deterministic_and_matches_formula():
@@ -32,47 +59,119 @@ def test_widget_html_escapes_content_and_has_handshake():
     assert "&lt;script&gt;" in html
     assert "ui/notifications/initialized" in html
     assert "ui/notifications/size-changed" in html
-    assert 'class="card"' in html
-    assert "linear-gradient" in html
-
-
-def test_widget_html_default_label_is_sponsored():
-    html = sponsored_widget_html(text="deal", url="https://x.com")
-    assert ">Sponsored<" in html
 
 
 def test_widget_html_always_carries_lulu_ads_attribution():
     # Not a parameter — every publisher's card carries this, same as
     # "Ads by Google": the network brand compounds across publishers only
-    # if it's consistent, not opt-in.
+    # if it's consistent, not opt-in. Baked into the compiled bundle's
+    # footer component, so the string literals survive minification
+    # verbatim even though the actual `<a href="...">` DOM only exists
+    # once React renders client-side (not checkable from a plain string).
     html = sponsored_widget_html(text="deal", url="https://x.com")
     assert "Powered by" in html
-    assert 'href="https://getlulu.dev"' in html
-    assert 'href="https://getlulu.dev/ads"' not in html  # apex domain, not a subpath
+    assert "https://getlulu.dev" in html
 
 
 def test_widget_html_intercepts_clicks_for_ui_open_link():
     # Plain <a target="_blank"> clicks are silently swallowed inside the
     # sandboxed MCP Apps iframe (no allow-popups) — ui/open-link is the
     # sanctioned host-mediated path (modelcontextprotocol/ext-apps
-    # spec.types.ts: McpUiOpenLinkRequest).
+    # spec.types.ts: McpUiOpenLinkRequest). The compiled/minified bundle
+    # no longer contains the old hand-written template's literal
+    # unminified JS source, so this only checks the mechanism (the
+    # ui/open-link postMessage method name) is still wired in, not the
+    # exact source text of the handler.
     html = sponsored_widget_html(text="deal", url="https://x.com")
     assert "ui/open-link" in html
-    assert "e.preventDefault()" in html
-    assert 'params: { url: link.href }' in html
 
 
-def test_widget_html_no_logo_element_when_absent():
+def test_widget_html_omits_logo_data_uri_from_injected_opts_when_absent():
     html = sponsored_widget_html(text="deal", url="https://x.com")
-    assert 'class="logo"' not in html
+    opts = _extract_injected_opts(html)
+    assert "logoDataUri" not in opts
 
 
-def test_widget_html_renders_logo_when_data_uri_given():
+def test_widget_html_carries_logo_data_uri_through_to_injected_opts_when_given():
     html = sponsored_widget_html(
         text="deal", url="https://x.com",
         logo_data_uri="data:image/png;base64,aGVsbG8=",
     )
-    assert 'class="logo" src="data:image/png;base64,aGVsbG8="' in html
+    opts = _extract_injected_opts(html)
+    assert opts["logoDataUri"] == "data:image/png;base64,aGVsbG8="
+
+
+def test_widget_html_applies_built_in_defaults_when_omitted():
+    html = sponsored_widget_html(text="deal", url="https://x.com")
+    opts = _extract_injected_opts(html)
+    assert opts["label"] == "Sponsored"
+    assert opts["cta"] == "Learn more →"
+    assert opts["accent"] == "#E07A00"
+    assert opts["accentLight"] == "#F5A623"
+    assert opts["accentDark"] == "#B55E00"
+
+
+def test_widget_html_carries_every_option_through_when_all_are_overridden():
+    html = sponsored_widget_html(
+        text="Save big",
+        url="https://example.com/deal",
+        label="Ad",
+        cta="Shop now",
+        logo_data_uri="data:image/png;base64,aGVsbG8=",
+        accent="#111111",
+        accent_light="#222222",
+        accent_dark="#000000",
+    )
+    opts = _extract_injected_opts(html)
+    assert opts == {
+        "text": "Save big",
+        "url": "https://example.com/deal",
+        "label": "Ad",
+        "cta": "Shop now",
+        "logoDataUri": "data:image/png;base64,aGVsbG8=",
+        "accent": "#111111",
+        "accentLight": "#222222",
+        "accentDark": "#000000",
+    }
+
+
+def test_widget_html_injected_opts_attr_is_byte_identical_to_the_ts_side():
+    # This is the check that actually discriminates: decoding-then-
+    # comparing (as every other test here does) can't see whitespace,
+    # separator, or escaping differences -- both `{"a": 1}` and `{"a":1}`
+    # decode to the same object. The TS side's JSON.stringify + escapeHtml
+    # produce a *compact* JSON blob (no space after `,`/`:`), non-ASCII
+    # characters left literal (not \uXXXX-escaped), and `'` escaped as the
+    # decimal `&#39;` (not html.escape's hex `&#x27;`) -- this asserts the
+    # raw injected attribute string matches that exact form, hand-computed
+    # here the way JSON.stringify(opts) + widget.ts's escapeHtml would
+    # produce it, apostrophe and non-ASCII included.
+    html = sponsored_widget_html(text="Mom's deal →", url="https://x.com")
+    match = re.search(r'id="lulu-ads-opts"[^>]*\sdata-opts="([^"]*)"', html)
+    assert match
+    expected_json = (
+        '{"text":"Mom\'s deal →","url":"https://x.com",'
+        '"label":"Sponsored","cta":"Learn more →",'
+        '"accent":"#E07A00","accentLight":"#F5A623","accentDark":"#B55E00"}'
+    )
+    expected_attr = (
+        expected_json.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+    assert match.group(1) == expected_attr
+
+
+def test_widget_html_is_genuinely_self_contained():
+    # No external <script src>/<link href> references -- the compiled
+    # bundle must be fully self-contained (same guard export-bundle.mjs
+    # and scripts/sync_widget_bundle.py both enforce at build/sync time).
+    html = sponsored_widget_html(text="deal", url="https://x.com")
+    assert not re.search(r"<script[^>]*\ssrc=", html)
+    assert not re.search(r"<link[^>]*\shref=", html)
+    assert re.search(r'<script type="module"[^>]*>[\s\S]+</script>', html)
 
 
 def test_fetch_logo_data_uri_inlines_a_small_allowed_image(monkeypatch):
@@ -133,7 +232,8 @@ async def test_register_sponsored_widget_inlines_logo(monkeypatch):
     async with Client(mcp) as client:
         content = await client.read_resource("ui://lulu-ads/sponsored.html")
         [c] = content
-        assert 'class="logo" src="data:image/png;base64,' in c.text
+        opts = _extract_injected_opts(c.text)
+        assert opts["logoDataUri"].startswith("data:image/png;base64,")
 
 
 async def test_register_sponsored_widget_bad_logo_still_registers(monkeypatch):
@@ -152,8 +252,9 @@ async def test_register_sponsored_widget_bad_logo_still_registers(monkeypatch):
     async with Client(mcp) as client:
         content = await client.read_resource("ui://lulu-ads/sponsored.html")
         [c] = content
-        assert 'class="logo"' not in c.text
-        assert "deal" in c.text
+        opts = _extract_injected_opts(c.text)
+        assert "logoDataUri" not in opts
+        assert opts["text"] == "deal"
 
 
 async def test_register_sponsored_widget_wires_resource_and_returns_app_config():
@@ -205,4 +306,5 @@ async def test_register_sponsored_widget_custom_resource_uri_and_label():
     async with Client(mcp) as client:
         content = await client.read_resource("ui://custom/card.html")
         [c] = content
-        assert ">Ad<" in c.text
+        opts = _extract_injected_opts(c.text)
+        assert opts["label"] == "Ad"
