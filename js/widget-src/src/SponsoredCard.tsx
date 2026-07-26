@@ -52,8 +52,8 @@ export const cardStyle: CSSProperties = {
 
 export function SponsoredCard({ state }: { state: SponsoredCardState }) {
   if (state.kind === "noFill") {
-    // No ad to show -- occupy no visible space. Matches today's behavior
-    // when sponsored_slot() returns None: no card at all.
+    // No ad content to render here -- App.tsx's persistent Card + Footer
+    // still show; this component just contributes nothing inside it.
     return null
   }
 
