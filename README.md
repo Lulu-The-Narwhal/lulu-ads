@@ -392,6 +392,20 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.6.2** — The sponsored card now plays a one-time diagonal light sweep
+  across itself when it settles into the loaded state (a real ad won) —
+  pure CSS (`.card-shine` in `js/widget-src/src/index.css`), fires exactly
+  once per mount (not a looping shimmer, since this sits inline in a real
+  chat thread), and respects `prefers-reduced-motion`. Skeleton and
+  no-fill states are unaffected.
+- **0.6.1** — Corrects a stale `0.6.0` published to npm before `dist/` was
+  rebuilt from the merged source (`js/` has no `prepublishOnly` build
+  step) — 0.6.0 is deprecated on npm pointing here. Also fixes README.md
+  and both languages' `widget.py`/`widget.ts` docstrings, which
+  incorrectly claimed `text`/`url`/`logo` passed to
+  `register_sponsored_widget()` render as a fallback "house ad" until a
+  live `tool-result` arrives; they never do — the widget shows the
+  skeleton indefinitely if a host never pushes it.
 - **0.6.0** — The MCP Apps sponsored widget now shows **live, per-call ad
   content** instead of a fixed house ad baked in at registration time:
   rebuilt in React + shadcn/ui (`Card`, `Skeleton`, `Button`), compiled to
@@ -400,10 +414,11 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
   then listens for the MCP Apps host's own `ui/notifications/tool-result`
   push — which the spec already delivers once per call, to a fresh iframe
   per call, with no server-side change needed — and swaps to that call's
-  real `structuredContent.sponsored` data. The `text`/`url`/`logo` passed
-  to `register_sponsored_widget()`/`registerSponsoredWidget()` are now
-  just the starting/fallback content for hosts that never push the live
-  update. The "Powered by Lulu Ads" footer renders once, immediately, and
+  real `structuredContent.sponsored` data — the widget shows the skeleton
+  indefinitely if a host never pushes it, not a fallback ad; only
+  `label`/`cta`/`accent*` from `register_sponsored_widget()`/
+  `registerSponsoredWidget()`'s options are actually used by the live
+  path. The "Powered by Lulu Ads" footer renders once, immediately, and
   is never itself part of the skeleton→card swap. Live-verified against a
   real host (claude.ai) with a throwaway test server: skeleton renders
   before the tool call resolves, swaps to the real per-call card once it

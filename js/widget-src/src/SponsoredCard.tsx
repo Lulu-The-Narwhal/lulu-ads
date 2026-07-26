@@ -48,6 +48,10 @@ export const cardStyle: CSSProperties = {
   boxShadow:
     "0 1px 2px rgba(0, 0, 0, 0.22), 0 10px 24px -10px rgba(224, 122, 0, 0.65)",
   color: "#FFF8EC",
+  // Contains the .card-shine sweep pseudo-element (index.css) to the
+  // card's own rounded bounds.
+  position: "relative",
+  overflow: "hidden",
 }
 
 export function SponsoredCard({ state }: { state: SponsoredCardState }) {

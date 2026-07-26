@@ -86,7 +86,10 @@ function App() {
 
   return (
     <Card
-      className="gap-0 rounded-[14px] border-0 p-3.5 px-4 py-3.5 ring-0"
+      className={
+        "gap-0 rounded-[14px] border-0 p-3.5 px-4 py-3.5 ring-0" +
+        (state.kind === "loaded" ? " card-shine" : "")
+      }
       style={cardStyle}
       aria-busy={state.kind === "loading"}
       aria-label={state.kind === "loading" ? "Loading sponsored content" : undefined}

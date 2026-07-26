@@ -130,3 +130,40 @@
     @apply font-sans;
     }
 }
+
+/* One-time diagonal light sweep on the sponsored card, fired once when it
+   settles into the "loaded" state (a real ad won). Not a looping shimmer --
+   this sits inline in a real chat thread and shouldn't keep competing for
+   attention. `.card-shine` is applied only once per mount (App.tsx never
+   re-adds it), so the 1-iteration animation plays exactly once. */
+.card-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 60%
+  );
+  background-size: 250% 100%;
+  background-position: 150% 0;
+  animation: card-shine-sweep 2.2s ease-in-out 0.3s 1;
+}
+
+@keyframes card-shine-sweep {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -50% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-shine::after {
+    animation: none;
+    display: none;
+  }
+}
