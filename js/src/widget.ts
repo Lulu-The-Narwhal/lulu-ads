@@ -54,15 +54,15 @@
  * `ui/notifications/tool-result` message the MCP Apps host sends on every
  * tool call (a fresh iframe per call is already how the protocol works;
  * nothing server-side had to change) and swaps its content to that call's
- * real `structuredContent.sponsored` data. `text`/`url`/`logoDataUri`
- * passed here become that starting "house ad" content baked into the
- * bundle at render time — shown only until/unless a live `tool-result`
- * ever arrives in a given host (a host that doesn't push it at all would
- * keep showing this baked content indefinitely, same as the old
- * fully-static behavior); `label`/`cta`/`accent*` additionally become the
- * defaults the live path falls back to for fields the wire payload
- * doesn't carry (`cta`, never; `label`, when omitted) and the static
- * per-integrator brand theme respectively.
+ * real `structuredContent.sponsored` data. The widget starts in a loading
+ * skeleton and only ever renders ad content once a live `tool-result`
+ * arrives — `text`/`url`/`logoDataUri` passed here are NOT rendered as
+ * initial content; a host that mounts the iframe but never pushes
+ * `tool-result` shows the skeleton indefinitely, not a fallback ad.
+ * `label`/`cta`/`accent*` are the only fields the live path actually uses
+ * from these options: defaults for fields the wire payload doesn't carry
+ * (`cta`, never; `label`, when omitted) and the static per-integrator
+ * brand theme respectively.
  */
 import { createHash } from "node:crypto";
 import { WIDGET_BUNDLE_HTML } from "./generatedWidgetBundle.js";

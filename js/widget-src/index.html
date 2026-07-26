@@ -18,11 +18,10 @@
          the build verbatim -- sponsoredWidgetHtml() (js/src/widget.ts)
          does a plain string replace of just that token (not the whole
          attribute) with an HTML-attribute-escaped JSON blob before
-         returning the compiled HTML. Do NOT spell the token out again
-         literally anywhere else in this file (e.g. another comment) --
-         a plain string replace only replaces the first occurrence, and a
-         second copy of the token text would silently steal the
-         substitution meant for the real attribute below.
+         returning the compiled HTML via replaceAll (all occurrences).
+         Do NOT spell the token out again literally anywhere else in this
+         file (e.g. another comment) -- replaceAll would substitute every
+         occurrence, corrupting any second copy of the token text too.
          mcpBridge.ts's `readInitialOptions()` reads this back via
          `getAttribute` (never innerHTML), which the browser decodes for
          free -- see its module docstring for why this is XSS-safe. -->
