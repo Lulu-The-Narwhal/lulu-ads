@@ -43,6 +43,59 @@ export interface SponsoredData {
 
 const DEFAULT_CTA = "Learn more →"
 const TOOL_RESULT_METHOD = "ui/notifications/tool-result"
+const OPTS_ELEMENT_ID = "lulu-ads-opts"
+
+/**
+ * Registration-time defaults `sponsoredWidgetHtml()` (js/src/widget.ts)
+ * bakes into the compiled bundle's `#lulu-ads-opts[data-opts]` attribute --
+ * see `index.html`'s `__LULU_ADS_OPTS__` placeholder for the substitution
+ * mechanism. `text`/`url`/`logoDataUri` are the registration-time "house
+ * ad" content (unused at runtime once live `tool-result` data has taken
+ * over -- kept here only because they're part of `SponsoredWidgetOptions`
+ * and thus always present in the injected blob; a real per-call fallback
+ * for hosts that never push `tool-result` is a real, currently-unaddressed
+ * gap, not solved by reading these fields -- see the widget.ts docstring
+ * and the task report). `label`/`cta`/`accent*` are genuinely used: they
+ * become the defaults `extractSponsored` falls back to when the live
+ * payload omits them (`label`, since the wire payload sometimes carries
+ * one; `cta`, since it never does) and the static theme colors
+ * `applyAccentTheme` applies once, outside the live-data path.
+ */
+export interface InitialOptions {
+  text: string
+  url: string
+  label?: string
+  cta?: string
+  logoDataUri?: string
+  accent?: string
+  accentLight?: string
+  accentDark?: string
+}
+
+/**
+ * Reads and JSON-parses the per-call options baked into the compiled
+ * bundle at `sponsoredWidgetHtml()` build/render time (see
+ * `InitialOptions`'s doc). Returns `null` if the element is missing, its
+ * `data-opts` attribute isn't valid JSON (e.g. running the unbuilt
+ * `vite dev` source directly, where the `__LULU_ADS_OPTS__` placeholder is
+ * never substituted), or the parsed value isn't an object -- callers must
+ * treat `null` as "no baked defaults available," not as an error.
+ * Reads via `getAttribute`, never `innerHTML`/`eval` -- the browser's own
+ * HTML-attribute-value decoding is what makes the escaped JSON blob safe
+ * to embed in the first place (see `index.html`'s comment on the element).
+ */
+export function readInitialOptions(): InitialOptions | null {
+  const el = document.getElementById(OPTS_ELEMENT_ID)
+  const raw = el?.getAttribute("data-opts")
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object") return null
+    return parsed as InitialOptions
+  } catch {
+    return null
+  }
+}
 
 /** Loose shape of the wire payload -- only what we read. Field names
  * mirror Task 1's confirmed live shape: {jsonrpc, method, params:
@@ -76,7 +129,7 @@ interface RawToolResultMessage {
  * `ui/notifications/tool-result` message. Returns `null` for the no-fill
  * case (no `sponsored` field, or one missing required text/url) -- callers
  * must treat `null` as "render nothing," not as an error. */
-export function extractSponsored(msg: RawToolResultMessage): SponsoredData | null {
+export function extractSponsored(msg: RawToolResultMessage, defaults?: InitialOptions | null): SponsoredData | null {
   const sponsored = msg.params?.structuredContent?.sponsored
   if (!sponsored || typeof sponsored !== "object") return null
 
@@ -84,15 +137,19 @@ export function extractSponsored(msg: RawToolResultMessage): SponsoredData | nul
   const url = sponsored.url
   if (typeof text !== "string" || typeof url !== "string" || !text || !url) return null
 
-  const label = typeof sponsored.label === "string" && sponsored.label ? sponsored.label : "Sponsored"
+  const label =
+    typeof sponsored.label === "string" && sponsored.label
+      ? sponsored.label
+      : (defaults?.label ?? "Sponsored")
   const logoDataUri =
     typeof sponsored.logo_url === "string" && sponsored.logo_url
       ? sponsored.logo_url
       : typeof sponsored.logoUrl === "string" && sponsored.logoUrl
         ? sponsored.logoUrl
         : undefined
+  const cta = (defaults?.cta && defaults.cta.trim()) ? defaults.cta : DEFAULT_CTA
 
-  return { label, text, url, logoDataUri, cta: DEFAULT_CTA }
+  return { label, text, url, logoDataUri, cta }
 }
 
 function isJsonRpcMessage(data: unknown): data is RawToolResultMessage {
@@ -112,14 +169,21 @@ function isJsonRpcMessage(data: unknown): data is RawToolResultMessage {
  * postMessage noise) is ignored: `onResult` does not fire at all for
  * those, it does not fire with `null` as a stand-in for "irrelevant".
  *
+ * `defaults` (typically `readInitialOptions()`'s result) is forwarded to
+ * `extractSponsored` for its `label`/`cta` fallback -- see that function's
+ * doc.
+ *
  * Returns an unsubscribe function.
  */
-export function listenForToolResult(onResult: (sponsored: SponsoredData | null) => void): () => void {
+export function listenForToolResult(
+  onResult: (sponsored: SponsoredData | null) => void,
+  defaults?: InitialOptions | null
+): () => void {
   function handleMessage(event: MessageEvent) {
     const msg = event.data
     if (!isJsonRpcMessage(msg)) return
     if (msg.method !== TOOL_RESULT_METHOD) return
-    onResult(extractSponsored(msg))
+    onResult(extractSponsored(msg, defaults))
   }
   window.addEventListener("message", handleMessage)
   return () => window.removeEventListener("message", handleMessage)
@@ -203,4 +267,26 @@ export function initClickRedirect(): () => void {
   }
   document.addEventListener("click", handleClick)
   return () => document.removeEventListener("click", handleClick)
+}
+
+/**
+ * Applies per-integrator brand colors (`SponsoredWidgetOptions.accent` /
+ * `accentLight` / `accentDark`, baked into `InitialOptions` -- see
+ * `readInitialOptions`) as CSS custom properties on the document root.
+ * `SponsoredCard.tsx`'s gradient reads these via `var(--lulu-accent,
+ * <hardcoded default>)`, so calling this with `null`/absent fields is a
+ * no-op that leaves the hardcoded Lulu brand defaults in place -- this is
+ * the mechanism that makes `accent*` overrides in `sponsoredWidgetHtml()`
+ * actually reach the compiled bundle (previously a real gap: the React
+ * component only ever rendered the hardcoded constants, ignoring any
+ * `accent*` option). Applied once, outside the live `tool-result` path --
+ * these are static per-widget-instance theme values, never sent over the
+ * wire per call.
+ */
+export function applyAccentTheme(opts?: InitialOptions | null): void {
+  if (!opts) return
+  const root = document.documentElement
+  if (opts.accent) root.style.setProperty("--lulu-accent", opts.accent)
+  if (opts.accentLight) root.style.setProperty("--lulu-accent-light", opts.accentLight)
+  if (opts.accentDark) root.style.setProperty("--lulu-accent-dark", opts.accentDark)
 }

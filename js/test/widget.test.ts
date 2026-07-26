@@ -21,6 +21,27 @@ async function connectedPair(server: McpServer) {
   return client;
 }
 
+/** Pulls the per-call options blob back out of a rendered widget HTML
+ * string -- the compiled React bundle now renders its actual card content
+ * client-side from this data (see js/widget-src/src/mcpBridge.ts's
+ * `readInitialOptions`), so `sponsoredWidgetHtml()`'s returned markup no
+ * longer contains a literal `<img class="logo">`/label/etc. the way the
+ * old hand-written template did -- this is the equivalent "did the right
+ * data make it into the output" check for the new mechanism. Mirrors the
+ * browser's own HTML-attribute-value decoding (never innerHTML/eval),
+ * same as the real `readInitialOptions` does. */
+function extractInjectedOpts(html: string): Record<string, unknown> {
+  const match = html.match(/id="lulu-ads-opts"[^>]*\sdata-opts="([^"]*)"/);
+  if (!match) throw new Error("no #lulu-ads-opts data-opts attribute found in rendered widget HTML");
+  const decoded = match[1]
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+  return JSON.parse(decoded);
+}
+
 test("claudeAppsDomain matches the deterministic sha256[:32] + suffix format", () => {
   const endpoint = "https://my-server.example.com/mcp";
   const expected = createHash("sha256").update(endpoint).digest("hex").slice(0, 32) + ".claudemcpcontent.com";
@@ -52,18 +73,63 @@ test("registerSponsoredWidget registers a readable resource and returns tool _me
   expect(result.contents[0].text).toContain("Save 15%");
 });
 
-test("sponsoredWidgetHtml has no logo element when logoDataUri is absent", () => {
+test("sponsoredWidgetHtml omits logoDataUri from the injected opts when absent", () => {
   const html = sponsoredWidgetHtml({ text: "deal", url: "https://example.com" });
-  expect(html).not.toContain('class="logo"');
+  const opts = extractInjectedOpts(html);
+  expect(opts.logoDataUri).toBeUndefined();
 });
 
-test("sponsoredWidgetHtml renders the logo when logoDataUri is given", () => {
+test("sponsoredWidgetHtml carries the logoDataUri through to the injected opts when given", () => {
   const html = sponsoredWidgetHtml({
     text: "deal",
     url: "https://example.com",
     logoDataUri: "data:image/png;base64,aGVsbG8=",
   });
-  expect(html).toContain('class="logo" src="data:image/png;base64,aGVsbG8="');
+  const opts = extractInjectedOpts(html);
+  expect(opts.logoDataUri).toBe("data:image/png;base64,aGVsbG8=");
+});
+
+test("sponsoredWidgetHtml applies built-in defaults (label, cta, accent) when omitted", () => {
+  const html = sponsoredWidgetHtml({ text: "deal", url: "https://example.com" });
+  const opts = extractInjectedOpts(html);
+  expect(opts.label).toBe("Sponsored");
+  expect(opts.cta).toBe("Learn more →");
+  expect(opts.accent).toBe("#E07A00");
+  expect(opts.accentLight).toBe("#F5A623");
+  expect(opts.accentDark).toBe("#B55E00");
+});
+
+test("sponsoredWidgetHtml carries every option through when all are overridden", () => {
+  const html = sponsoredWidgetHtml({
+    text: "Save big",
+    url: "https://example.com/deal",
+    label: "Ad",
+    cta: "Shop now",
+    logoDataUri: "data:image/png;base64,aGVsbG8=",
+    accent: "#111111",
+    accentLight: "#222222",
+    accentDark: "#000000",
+  });
+  const opts = extractInjectedOpts(html);
+  expect(opts).toEqual({
+    text: "Save big",
+    url: "https://example.com/deal",
+    label: "Ad",
+    cta: "Shop now",
+    logoDataUri: "data:image/png;base64,aGVsbG8=",
+    accent: "#111111",
+    accentLight: "#222222",
+    accentDark: "#000000",
+  });
+});
+
+test("sponsoredWidgetHtml is genuinely self-contained (no external script/link references)", () => {
+  const html = sponsoredWidgetHtml({ text: "deal", url: "https://example.com" });
+  expect(html).not.toMatch(/<script[^>]*\ssrc=/);
+  expect(html).not.toMatch(/<link[^>]*\shref=/);
+  // A <script> with the compiled React/bridge code is still expected --
+  // just inlined, not referenced.
+  expect(html).toMatch(/<script type="module"[^>]*>[\s\S]+<\/script>/);
 });
 
 test("fetchLogoDataUri inlines a small allowed image", async () => {
@@ -125,7 +191,8 @@ test("registerSponsoredWidget inlines a fetched logo into the widget", async () 
 
   const client = await connectedPair(server);
   const result: any = await client.readResource({ uri: "ui://lulu-ads/sponsored.html" });
-  expect(result.contents[0].text).toContain('class="logo" src="data:image/png;base64,');
+  const opts = extractInjectedOpts(result.contents[0].text);
+  expect(opts.logoDataUri).toMatch(/^data:image\/png;base64,/);
 });
 
 test("registerSponsoredWidget still registers when the logo fetch fails", async () => {
@@ -143,6 +210,7 @@ test("registerSponsoredWidget still registers when the logo fetch fails", async 
 
   const client = await connectedPair(server);
   const result: any = await client.readResource({ uri: "ui://lulu-ads/sponsored.html" });
-  expect(result.contents[0].text).not.toContain('class="logo"');
-  expect(result.contents[0].text).toContain("Save 15%");
+  const opts = extractInjectedOpts(result.contents[0].text);
+  expect(opts.logoDataUri).toBeUndefined();
+  expect(opts.text).toBe("Save 15%");
 });

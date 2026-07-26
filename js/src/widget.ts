@@ -49,14 +49,26 @@
  *   server.registerTool("search", { ...appMeta }, handler);
  *
  * `endpointUrl` must be the exact public MCP connector URL clients connect
- * to. The card content is fixed at registration time (like a house ad), not
- * re-rendered per tool call — the same tier of sophistication as the
- * plain-JSON fallback's house-fill path. Per-call dynamic ad content in the
- * widget itself is a roadmap item, not implemented here.
+ * to. `resourceUri` itself is still registered once, statically, at
+ * startup — but the compiled widget bundle now *listens* for the live
+ * `ui/notifications/tool-result` message the MCP Apps host sends on every
+ * tool call (a fresh iframe per call is already how the protocol works;
+ * nothing server-side had to change) and swaps its content to that call's
+ * real `structuredContent.sponsored` data. `text`/`url`/`logoDataUri`
+ * passed here become that starting "house ad" content baked into the
+ * bundle at render time — shown only until/unless a live `tool-result`
+ * ever arrives in a given host (a host that doesn't push it at all would
+ * keep showing this baked content indefinitely, same as the old
+ * fully-static behavior); `label`/`cta`/`accent*` additionally become the
+ * defaults the live path falls back to for fields the wire payload
+ * doesn't carry (`cta`, never; `label`, when omitted) and the static
+ * per-integrator brand theme respectively.
  */
 import { createHash } from "node:crypto";
+import { WIDGET_BUNDLE_HTML } from "./generatedWidgetBundle.js";
 
 const DEFAULT_RESOURCE_URI = "ui://lulu-ads/sponsored.html";
+const OPTS_PLACEHOLDER = "__LULU_ADS_OPTS__";
 
 // Keeps the inlined data: URI (and the resource payload every client
 // downloads) small -- this renders at 28x28 in the card, never a full-size
@@ -129,8 +141,18 @@ export interface SponsoredWidgetOptions {
 }
 
 /** Renders the Lulu Ads sponsored-card widget: a floating, rounded,
- * gradient card with a disclosed label. Ships data baked into markup — no
- * instruction telling any model or host what to do with it. */
+ * gradient card with a disclosed label, live-swappable per tool call. The
+ * markup/CSS/JS themselves come from the compiled `js/widget-src/`
+ * React/shadcn build (`generatedWidgetBundle.ts` -- a single self-
+ * contained HTML document, everything inlined, no external requests, same
+ * discipline the old hand-written template followed for the logo `data:`
+ * URI). This function's job is narrower than it used to be: apply the
+ * same defaults the old template applied, then substitute the result --
+ * as an HTML-attribute-escaped JSON blob, so a malicious `text`/`url`
+ * still can't break out of the markup (see the widget-src `index.html`
+ * comment on the placeholder element and mcpBridge.ts's
+ * `readInitialOptions` for the consuming/decoding side) -- into the
+ * bundle's `__LULU_ADS_OPTS__` placeholder. */
 export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
   const {
     text,
@@ -142,97 +164,27 @@ export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
     accentLight = ACCENT_LIGHT,
     accentDark = ACCENT_DARK,
   } = opts;
-  const textHtml = escapeHtml(text);
-  const ctaHtml = escapeHtml(cta);
-  const urlAttr = escapeHtml(url);
-  const labelHtml = escapeHtml(label);
-  const logoHtml = logoDataUri
-    ? `<img class="logo" src="${escapeHtml(logoDataUri)}" alt="">`
-    : "";
 
-  return `<!doctype html>
-<html><head><meta charset="utf-8">
-<style>
-  :root { color-scheme: light dark; }
-  html, body { margin: 0; padding: 0; background: transparent; }
-  body { padding: 4px; font-family: -apple-system, "Segoe UI", sans-serif; }
-  .card {
-    padding: 14px 16px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, ${accentLight} 0%, ${accent} 55%, ${accentDark} 100%);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 10px 24px -10px rgba(224, 122, 0, 0.65);
-    color: #FFF8EC;
-  }
-  .label {
-    font-size: 10px; font-weight: 800; letter-spacing: .09em;
-    text-transform: uppercase; opacity: .92; margin-bottom: 5px;
-  }
-  .row { display: flex; align-items: flex-start; gap: 10px; }
-  .logo {
-    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
-    background: rgba(255, 255, 255, 0.9); object-fit: contain; padding: 2px;
-  }
-  .text { font-size: 13px; line-height: 1.45; }
-  a { color: #FFFFFF; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
-  .footer {
-    margin-top: 9px; padding-top: 7px;
-    border-top: 1px solid rgba(255, 255, 255, 0.25);
-    font-size: 10px; opacity: .8;
-  }
-  .footer a { font-weight: 600; text-decoration: none; }
-  .footer a:hover { text-decoration: underline; }
-</style></head>
-<body>
-  <div class="card">
-    <div class="label">${labelHtml}</div>
-    <div class="row">
-      ${logoHtml}
-      <div class="text">${textHtml} <a href="${urlAttr}" target="_blank" rel="noopener">${ctaHtml}</a></div>
-    </div>
-    <div class="footer">Powered by <a href="https://getlulu.dev" target="_blank" rel="noopener">Lulu Ads</a></div>
-  </div>
-<script>
-  (function () {
-    // MCP Apps handshake: the host keeps the iframe reserved-but-hidden until
-    // it receives ui/notifications/initialized (modelcontextprotocol/ext-apps#671).
-    // Sent on load plus a short fallback timer so a missed load event can't
-    // deadlock the widget into permanently-hidden.
-    var sent = false;
-    function notifyInitialized() {
-      if (sent) return;
-      sent = true;
-      window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }, "*");
-      var h = document.body.scrollHeight;
-      if (h) {
-        window.parent.postMessage(
-          { jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { width: 400, height: h } },
-          "*"
-        );
-      }
-    }
-    window.addEventListener("load", notifyInitialized);
-    setTimeout(notifyInitialized, 300);
+  const resolvedOpts: SponsoredWidgetOptions = {
+    text,
+    url,
+    label,
+    cta,
+    logoDataUri,
+    accent,
+    accentLight,
+    accentDark,
+  };
+  // JSON.stringify drops undefined-valued keys (logoDataUri when absent)
+  // on its own -- no extra filtering needed to match the old template's
+  // "no <img> element at all when logoDataUri is absent" contract.
+  const optsAttr = escapeHtml(JSON.stringify(resolvedOpts));
 
-    // Plain <a target="_blank"> clicks get silently swallowed inside the
-    // sandboxed MCP Apps iframe (no allow-popups) — right-click "open in
-    // new tab" bypasses the iframe's JS entirely, which is why that alone
-    // worked. The sanctioned path is ui/open-link, a real JSON-RPC request
-    // the host handles outside the sandbox (modelcontextprotocol/ext-apps
-    // spec.types.ts: McpUiOpenLinkRequest). href/target stay on the <a> as
-    // a harmless fallback for any host that doesn't run this JS.
-    document.querySelectorAll("a[href]").forEach(function (link) {
-      link.addEventListener("click", function (e) {
-        e.preventDefault();
-        window.parent.postMessage(
-          { jsonrpc: "2.0", id: "open-link-" + Date.now(), method: "ui/open-link", params: { url: link.href } },
-          "*"
-        );
-      });
-    });
-  })();
-</script>
-</body></html>`;
+  // replaceAll, not replace: a plain single-occurrence replace would
+  // silently target the wrong match if the placeholder token is ever
+  // spelled out again elsewhere in the bundle (e.g. in a comment) --
+  // see widget-src/index.html's own comment on this exact gotcha.
+  return WIDGET_BUNDLE_HTML.replaceAll(OPTS_PLACEHOLDER, optsAttr);
 }
 
 type AnyServer = {

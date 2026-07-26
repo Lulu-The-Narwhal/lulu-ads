@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react"
 import { SponsoredCard, type SponsoredCardState } from "./SponsoredCard"
-import { initClickRedirect, initHandshake, listenForToolResult, notifySizeChanged } from "./mcpBridge"
+import { Footer } from "./Footer"
+import {
+  applyAccentTheme,
+  initClickRedirect,
+  initHandshake,
+  listenForToolResult,
+  notifySizeChanged,
+  readInitialOptions,
+} from "./mcpBridge"
 
 /**
  * The widget's React root. Starts in the skeleton state, then swaps to
@@ -8,15 +16,22 @@ import { initClickRedirect, initHandshake, listenForToolResult, notifySizeChange
  * for this call arrives -- see mcpBridge.ts for the message contract and
  * the ported handshake/click-redirect behaviors.
  *
- * Note: the "Powered by Lulu Ads" footer (design doc: renders once,
- * outside the skeleton/loaded/noFill swap, in all three states) is
- * intentionally NOT added here. Task 3's brief scopes this file to state
- * wiring + rendering `<SponsoredCard state={state} />` only, and no task
- * brief in the plan (checked Task 3 and Task 4) explicitly owns building
- * the footer shell -- flagged as a gap in the task-3 report rather than
- * guessed at here.
+ * Renders `<Footer />` unconditionally, as a sibling of `<SponsoredCard>`
+ * -- outside the loading/loaded/noFill swap, present in every state
+ * (including `noFill`, where `SponsoredCard` itself renders nothing). See
+ * Footer.tsx for why: this was a real gap no task before Task 4 built.
  */
 function App() {
+  // Registration-time defaults baked into the compiled bundle by
+  // sponsoredWidgetHtml() -- read once, synchronously, so applyAccentTheme
+  // and the first listenForToolResult subscription both see the same
+  // value the very first time they run (a plain DOM attribute read, not a
+  // side effect, so doing it in the lazy useState initializer instead of
+  // an effect is safe here -- this widget only ever renders client-side,
+  // no SSR pass to worry about). `null` in `vite dev` (unbuilt source,
+  // placeholder never substituted) or if the element/JSON is malformed --
+  // see readInitialOptions's doc.
+  const [initialOptions] = useState(() => readInitialOptions())
   const [state, setState] = useState<SponsoredCardState>({ kind: "loading" })
 
   // Guards the one-time loading->settled size-changed resend below so it
@@ -26,6 +41,11 @@ function App() {
   const hasSentSettledSize = useRef(false)
 
   useEffect(() => {
+    // Per-integrator brand colors (accent/accentLight/accentDark) --
+    // static for the widget's lifetime, applied once, independent of
+    // whatever live tool-result data later arrives.
+    applyAccentTheme(initialOptions)
+
     // MCP Apps handshake -- must fire regardless of whether/when a
     // tool-result ever arrives, so the host un-hides the iframe at all.
     initHandshake()
@@ -37,13 +57,13 @@ function App() {
 
     const unsubscribeToolResult = listenForToolResult((sponsored) => {
       setState(sponsored ? { kind: "loaded", ...sponsored } : { kind: "noFill" })
-    })
+    }, initialOptions)
 
     return () => {
       unsubscribeClicks()
       unsubscribeToolResult()
     }
-  }, [])
+  }, [initialOptions])
 
   // initHandshake() sends size-changed once, measuring whatever's
   // rendered at that moment (the skeleton). The skeleton and the settled
@@ -60,7 +80,12 @@ function App() {
     }
   }, [state.kind])
 
-  return <SponsoredCard state={state} />
+  return (
+    <>
+      <SponsoredCard state={state} />
+      <Footer />
+    </>
+  )
 }
 
 export default App

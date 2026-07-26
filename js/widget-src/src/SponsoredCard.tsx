@@ -27,13 +27,19 @@ export type SponsoredCardState =
   | { kind: "noFill" }
 
 // Lulu brand tokens -- keep in sync with js/src/widget.ts's
-// ACCENT / ACCENT_LIGHT / ACCENT_DARK constants.
+// ACCENT / ACCENT_LIGHT / ACCENT_DARK constants. Read through CSS custom
+// properties (with these hex values as the `var()` fallback) rather than
+// hardcoded directly, so `mcpBridge.ts`'s `applyAccentTheme` -- called
+// once at startup from per-integrator `sponsoredWidgetHtml({accent,
+// accentLight, accentDark})` options -- can actually override them. Before
+// this, a custom `accent` option silently did nothing: this component
+// only ever rendered these hardcoded constants.
 const ACCENT = "#E07A00"
 const ACCENT_LIGHT = "#F5A623"
 const ACCENT_DARK = "#B55E00"
 
 const cardStyle: CSSProperties = {
-  background: `linear-gradient(135deg, ${ACCENT_LIGHT} 0%, ${ACCENT} 55%, ${ACCENT_DARK} 100%)`,
+  background: `linear-gradient(135deg, var(--lulu-accent-light, ${ACCENT_LIGHT}) 0%, var(--lulu-accent, ${ACCENT}) 55%, var(--lulu-accent-dark, ${ACCENT_DARK}) 100%)`,
   border: "1px solid rgba(255, 255, 255, 0.22)",
   boxShadow:
     "0 1px 2px rgba(0, 0, 0, 0.22), 0 10px 24px -10px rgba(224, 122, 0, 0.65)",
