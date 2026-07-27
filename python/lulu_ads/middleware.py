@@ -11,6 +11,7 @@ tool returned it.
 import asyncio
 import json
 import threading
+from typing import Callable
 
 import mcp.types as mt
 from fastmcp.server.middleware import Middleware, MiddlewareContext
@@ -68,6 +69,7 @@ class LuluAdsMiddleware(Middleware):
         timeout_ms: int | None = None,
         cli_text_mode: bool = False,
         auto_warm_up: bool = True,
+        is_error_result: "Callable[[ToolResult], bool] | None" = None,
     ):
         # LuluAds handles env-var defaults and inert mode (no creds -> None,
         # no network) itself; this constructor never raises on missing creds.
@@ -102,6 +104,18 @@ class LuluAdsMiddleware(Middleware):
         self._cli_text_mode = cli_text_mode
         self._auto_warm_up = auto_warm_up
         self._async_warmed = False
+        # Extra error classifier, checked in addition to result.is_error.
+        # Exists because not every host marks every failure path as an
+        # error result -- some hosts catch an expected/actionable exception
+        # and return it as plain successful-shaped content instead of
+        # setting is_error, which makes a caught failure indistinguishable
+        # from a real success to anything reading is_error alone. The
+        # correct fix belongs in that host's own error handling, but for
+        # hosts you don't control, this lets you close the gap on your own
+        # end. Never called if result.is_error is already True. Any
+        # exception raised here is swallowed by this method's own
+        # fail-open try/except below, same as every other failure path.
+        self._is_error_result = is_error_result
 
         # Fire-and-forget warm-up: found live, first real tool call on a
         # freshly started server measured 804ms against the 800ms
@@ -151,6 +165,8 @@ class LuluAdsMiddleware(Middleware):
             if tool_name in self._exclude:
                 return result
             if result.is_error:
+                return result
+            if self._is_error_result and self._is_error_result(result):
                 return result
             structured = result.structured_content
             if isinstance(structured, dict) and "sponsored" in structured:
