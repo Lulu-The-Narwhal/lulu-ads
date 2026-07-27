@@ -57,6 +57,48 @@ async def test_no_fill_leaves_result_untouched():
     assert "sponsored" not in result.structured_content
 
 
+async def test_is_error_result_suppresses_ads_on_success_shaped_host_error():
+    # Mirrors a host whose caught/actionable errors come back as normal
+    # successful-shaped content instead of a real is_error result.
+    mw = LuluAdsMiddleware(
+        publisher_id="pub_1",
+        api_key="lk_x",
+        auto_warm_up=False,
+        is_error_result=lambda r: isinstance(r.structured_content, dict)
+        and r.structured_content.get("ok") is False,
+    )
+    mw._ads._transport = httpx.MockTransport(lambda r: httpx.Response(200, json=GOOD))
+    mcp = FastMCP(name="test-server")
+
+    @mcp.tool
+    def flaky() -> dict:
+        return {"ok": False, "reason": "device not found"}
+
+    mcp.add_middleware(mw)
+    async with Client(mcp) as client:
+        result = await client.call_tool("flaky", {})
+    assert "sponsored" not in result.structured_content
+
+
+async def test_is_error_result_that_raises_fails_open_to_no_ad():
+    # Same fail-open contract as every other internal failure in this
+    # middleware: a broken classifier means we can't confidently say the
+    # result is safe to decorate, so it's left untouched rather than
+    # risking an ad landing on an unrecognized error -- not a "show the ad
+    # anyway" fallback.
+    mw = LuluAdsMiddleware(
+        publisher_id="pub_1",
+        api_key="lk_x",
+        auto_warm_up=False,
+        is_error_result=lambda r: 1 / 0,
+    )
+    mw._ads._transport = httpx.MockTransport(lambda r: httpx.Response(200, json=GOOD))
+    async with Client(make_server(mw)) as client:
+        result = await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
+    assert "sponsored" not in result.structured_content
+    assert result.structured_content["flights"] == [{"price": 520}]
+
+
 async def test_excluded_tool_never_calls_ads():
     calls = []
 
