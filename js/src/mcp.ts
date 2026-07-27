@@ -12,6 +12,8 @@
 import { LuluAds } from "./index.js";
 import type { Sponsored } from "./index.js";
 import { formatCliCard, isCliClient } from "./cliCard.js";
+import { registerSponsoredWidget } from "./widget.js";
+import type { SponsoredAppMeta } from "./widget.js";
 
 type AnyServer = {
   registerTool: (...args: any[]) => any;
@@ -94,11 +96,116 @@ export function withLuluAds<S extends AnyServer>(
           !config?.outputSchema
         ) {
           result.structuredContent = { ...result.structuredContent, sponsored };
+          // Keep content[] in sync with structuredContent. The SDK/host
+          // builds content[] once, from the tool's ORIGINAL return value,
+          // before this wrapper ever runs -- mutating structuredContent
+          // alone leaves content[] permanently stale (still the pre-ad
+          // JSON). Confirmed live against a real MCP client (Claude.ai,
+          // Python side): the wire response's structuredContent
+          // demonstrably had "sponsored", but the client read and reported
+          // back from content[], which didn't -- whatever it
+          // renders/reports reads content[], not structuredContent. Only
+          // safe to rewrite when content is exactly the single
+          // auto-generated JSON text block (the common case for a
+          // schema'd tool with no custom content) -- anything else
+          // (images, multiple blocks, a tool that built its own
+          // human-readable text) is left untouched rather than risk
+          // destroying real content.
+          if (
+            Array.isArray(result.content) &&
+            result.content.length === 1 &&
+            result.content[0]?.type === "text"
+          ) {
+            result.content = [{ type: "text", text: JSON.stringify(result.structuredContent) }];
+          }
         }
       } catch {
         /* fail-open: never break a tool result */
       }
       return result;
     });
+  return server;
+}
+
+type WidgetCapableServer = AnyServer & {
+  registerResource: (
+    name: string,
+    uri: string,
+    config: Record<string, unknown>,
+    readCallback: (...args: any[]) => any
+  ) => unknown;
+};
+
+/**
+ * enableLuluAds(server, opts) -- one call that monetizes every tool on an
+ * MCP server AND gives every one of them the rendered Sponsored-card widget
+ * in hosts that support MCP Apps (e.g. Claude.ai).
+ *
+ * Before this existed, getting the widget required two extra, easy-to-forget
+ * manual steps beyond withLuluAds: calling registerSponsoredWidget() once,
+ * and then remembering to spread its returned `_meta` onto every single
+ * `server.registerTool(...)` call you wanted it on. This closes that gap the
+ * same way withLuluAds closes it for the data field: by ALSO wrapping
+ * `registerTool` so the widget config is attached automatically, with no
+ * per-tool action required and no way to forget it on a newly added tool.
+ *
+ * `text`/`url`/`logo` aren't exposed here because the widget never actually
+ * shows them: it starts in a loading skeleton and only ever renders once a
+ * live tool-result carries real `sponsored` data (see widget.ts's
+ * docstring) -- passing per-integration placeholder ad copy at setup time
+ * would just be dead code.
+ *
+ * Usage:
+ *
+ *   import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+ *   import { enableLuluAds } from "lulu-ads/mcp";
+ *
+ *   const server = new McpServer({ name: "my-server", version: "1.0.0" });
+ *   await enableLuluAds(server, { endpointUrl: "https://my-server.example.com/mcp" });
+ *   server.registerTool("search", { ... }, handler); // already monetized AND widget-enabled
+ */
+export async function enableLuluAds<S extends WidgetCapableServer>(
+  server: S,
+  opts: {
+    endpointUrl: string;
+    ads?: LuluAds;
+    excludeTools?: string[];
+    timeoutMs?: number;
+    cliTextMode?: boolean;
+    autoWarmUp?: boolean;
+    resourceUri?: string;
+  }
+): Promise<S> {
+  withLuluAds(server, opts.ads, {
+    excludeTools: opts.excludeTools,
+    timeoutMs: opts.timeoutMs,
+    cliTextMode: opts.cliTextMode,
+    autoWarmUp: opts.autoWarmUp,
+  });
+
+  const appMeta: SponsoredAppMeta = await registerSponsoredWidget(server, {
+    endpointUrl: opts.endpointUrl,
+    text: "Sponsored",
+    url: opts.endpointUrl,
+    resourceUri: opts.resourceUri,
+  });
+
+  const exclude = new Set(opts.excludeTools ?? []);
+  // withLuluAds already replaced server.registerTool once (adds the ads
+  // data behavior around the handler); wrapping it again here composes
+  // cleanly since this wrap only touches `config` before delegating to
+  // that one, never the handler itself.
+  const origRegisterTool = server.registerTool.bind(server);
+  (server as AnyServer).registerTool = (name: string, config: any, handler: any) => {
+    // Never override a tool's own explicit widget config -- a deliberate
+    // choice, same as timeoutMs/enabled elsewhere in this SDK.
+    const alreadySet = config?._meta?.ui !== undefined;
+    const merged =
+      exclude.has(name) || alreadySet
+        ? config
+        : { ...config, _meta: { ...(config?._meta ?? {}), ...appMeta._meta } };
+    return origRegisterTool(name, merged, handler);
+  };
+
   return server;
 }

@@ -13,6 +13,17 @@ function ads() {
   return new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" });
 }
 
+// A client with a real success just now -- steady-state (within the
+// keepalive window), not the genuinely-first-request-ever or
+// idle-too-long case COLD_START_TIMEOUT_MS exists for. `as any` to reach
+// the private field is the test-seam pattern already used elsewhere in
+// this SDK (e.g. client._transport in the Python tests).
+function warmedAds() {
+  const client = ads();
+  (client as any).lastSuccessAt = Date.now();
+  return client;
+}
+
 test("happy path", async () => {
   mockFetch(async (url, init) => {
     expect(String(url)).toBe("https://ads.getlulu.dev/slot");
@@ -129,14 +140,17 @@ test("logoUrl absent when the response has none", async () => {
 });
 
 test("fast default times out without prompt", async () => {
+  // Steady-state guarantee -- a warmed client, not the exempted first-ever
+  // request (see "first request ever gets cold-start headroom" below).
   mockFetch((_url, init) => new Promise((_resolve, reject) => {
-    setTimeout(() => reject(new DOMException("aborted", "AbortError")), 1000);
     init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
   }) as Promise<Response>);
   const start = Date.now();
-  const out = await ads().sponsoredSlot({ context: { tool: "x" } });
+  const out = await warmedAds().sponsoredSlot({ context: { tool: "x" } });
   expect(out).toBeNull();
-  expect(Date.now() - start).toBeLessThan(1000);
+  // Between FAST_TIMEOUT_MS (1500) and COLD_START_TIMEOUT_MS (3000) --
+  // proves this call got the tight budget, not the cold-start one.
+  expect(Date.now() - start).toBeLessThan(2000);
 });
 
 test("classify default survives prompt without category", async () => {
@@ -146,13 +160,88 @@ test("classify default survives prompt without category", async () => {
 });
 
 test("fast default applies even with prompt when category explicit", async () => {
+  // Steady-state guarantee -- see comment on the previous test.
   mockFetch((_url, init) => new Promise((_resolve, reject) => {
     init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
   }) as Promise<Response>);
   const start = Date.now();
-  const out = await ads().sponsoredSlot({ context: { category: "travel.flights", prompt: "best flights to paris" } });
+  const out = await warmedAds().sponsoredSlot({ context: { category: "travel.flights", prompt: "best flights to paris" } });
   expect(out).toBeNull();
-  expect(Date.now() - start).toBeLessThan(1000);
+  expect(Date.now() - start).toBeLessThan(2000);
+});
+
+test("first request ever gets cold-start headroom", async () => {
+  // Root cause of a real 0% delivery rate against remote MCP hosts that
+  // reconnect per message (Claude.ai's connector, confirmed live): every
+  // call looked like the first-ever request, and the tight budget isn't
+  // enough for a real cold TLS handshake (measured 2.46s in production). A
+  // fresh client's first call must survive something slower than the fast
+  // default but comfortably under COLD_START_TIMEOUT_MS.
+  mockFetch(() => new Promise((resolve) => {
+    setTimeout(() => resolve(new Response(JSON.stringify(GOOD), { status: 200 })), 2000);
+  }) as Promise<Response>);
+  const client = ads();
+  const out = await client.sponsoredSlot({ context: { tool: "x" } });
+  expect(out).toEqual(GOOD);
+});
+
+test("a call soon after success does not get cold-start headroom", async () => {
+  // The SECOND call, arriving well within the keepalive window of the
+  // first success, must revert to the tight steady-state timeout --
+  // cold-start headroom re-arms on a real idle gap, it isn't a permanent
+  // loosening of the fast path's guarantee. The mock must actually respect
+  // the abort signal (unlike a plain setTimeout) so elapsed time reflects
+  // which timeout really fired, not an unrelated fixed delay.
+  let call = 0;
+  mockFetch((_url, init) => {
+    call++;
+    if (call === 1) return Promise.resolve(new Response(JSON.stringify(GOOD), { status: 200 }));
+    return new Promise((_resolve, reject) => {
+      init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    }) as Promise<Response>;
+  });
+  const client = ads();
+  const first = await client.sponsoredSlot({ context: { tool: "x" } });
+  expect(first).toEqual(GOOD);
+  expect((client as any).lastSuccessAt).not.toBeNull();
+  const start = Date.now();
+  const second = await client.sponsoredSlot({ context: { tool: "y" } });
+  expect(second).toBeNull();
+  expect(Date.now() - start).toBeLessThan(2000);
+});
+
+test("a call long after success gets cold-start headroom again", async () => {
+  // Idle longer than KEEPALIVE_EXPIRY_MS since the last success -- the
+  // pooled connection is genuinely likely to be cold again (or actually
+  // evicted by the real pool), so this call should get the same headroom
+  // as a genuinely-first-ever call, not the tight budget.
+  mockFetch(() => new Promise((resolve) => {
+    setTimeout(() => resolve(new Response(JSON.stringify(GOOD), { status: 200 })), 2000);
+  }) as Promise<Response>);
+  const client = ads();
+  (client as any).lastSuccessAt = Date.now() - 91_000; // > KEEPALIVE_EXPIRY_MS (90_000)
+  const out = await client.sponsoredSlot({ context: { tool: "x" } });
+  expect(out).toEqual(GOOD);
+});
+
+test("cold-start headroom does not override explicit timeoutMs", async () => {
+  // An explicit timeoutMs is a deliberate integrator choice and must never
+  // be silently overridden, even on a client's genuinely-first call.
+  mockFetch((_url, init) => new Promise((_resolve, reject) => {
+    init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+  }) as Promise<Response>);
+  const out = await ads().sponsoredSlot({ context: { tool: "x" }, timeoutMs: 200 });
+  expect(out).toBeNull();
+});
+
+test("warmUp success updates lastSuccessAt", async () => {
+  // A successful warmUp() health check is real evidence the connection is
+  // live -- it should count the same as a real sponsoredSlot success.
+  mockFetch(async () => new Response(null, { status: 200 }));
+  const client = ads();
+  expect((client as any).lastSuccessAt).toBeNull();
+  await client.warmUp();
+  expect((client as any).lastSuccessAt).not.toBeNull();
 });
 
 test("enabled: false skips with no fetch call", async () => {

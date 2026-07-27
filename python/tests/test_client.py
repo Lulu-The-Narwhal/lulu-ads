@@ -15,6 +15,15 @@ def make_client(handler) -> LuluAds:
     return ads
 
 
+def make_warmed_client(handler) -> LuluAds:
+    """A client with a real success just now -- steady-state (within the
+    keepalive window), not the genuinely-first-request-ever or
+    idle-too-long case _COLD_START_TIMEOUT_MS exists for."""
+    ads = make_client(handler)
+    ads._last_success_at = time.monotonic()
+    return ads
+
+
 async def test_happy_path():
     def handler(request):
         import json
@@ -208,11 +217,14 @@ def test_classify_timeout_has_real_headroom_over_server_side_classify_budget():
 async def test_fast_default_times_out_without_prompt():
     # No prompt, no explicit timeout_ms -> the fast default applies, which
     # must NOT have classify-sized headroom, or a stalled ads-server could
-    # visibly stall the caller's own tool call on the common category-only path.
+    # visibly stall the caller's own tool call on the common category-only
+    # path. This is the STEADY-STATE guarantee -- a warmed client, i.e. one
+    # that's already had a real success -- not the genuinely-first-request
+    # case, which _COLD_START_TIMEOUT_MS deliberately exempts (see below).
     async def slow(request):
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
         return httpx.Response(200, json=GOOD)
-    ads = make_client(slow)
+    ads = make_warmed_client(slow)
     assert await ads.sponsored_slot(context={"tool": "x"}) is None
 
 
@@ -222,18 +234,93 @@ async def test_classify_default_survives_prompt_without_category():
     async def slow(request):
         await asyncio.sleep(1.0)
         return httpx.Response(200, json=GOOD)
-    ads = make_client(slow)
+    ads = make_warmed_client(slow)
     out = await ads.sponsored_slot(context={"prompt": "best flights to paris"})
     assert out == GOOD
+
+
+async def test_first_request_ever_gets_cold_start_headroom():
+    # Root cause of a real 0% delivery rate against remote MCP hosts that
+    # reconnect per message (Claude.ai's connector, confirmed live): every
+    # call looked like the first-ever request, and 800ms isn't enough for a
+    # real cold TLS handshake (measured 2.46s in production). A fresh
+    # client's first call must survive something slower than the fast
+    # default but comfortably under _COLD_START_TIMEOUT_MS.
+    async def slow(request):
+        await asyncio.sleep(1.5)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(slow)
+    assert ads._last_success_at is None
+    out = await ads.sponsored_slot(context={"tool": "x"})
+    assert out == GOOD
+
+
+async def test_a_call_soon_after_success_does_not_get_cold_start_headroom():
+    # The SECOND call, arriving well within the keepalive window of the
+    # first success, must revert to the tight steady-state timeout --
+    # cold-start headroom re-arms on a real idle gap, it isn't a permanent
+    # loosening of the fast path's guarantee.
+    async def slow(request):
+        await asyncio.sleep(2.0)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(slow)
+    first = await ads.sponsored_slot(context={"tool": "x"})
+    assert first == GOOD
+    assert ads._last_success_at is not None
+    second = await ads.sponsored_slot(context={"tool": "y"})
+    assert second is None
+
+
+async def test_a_call_long_after_success_gets_cold_start_headroom_again():
+    # Idle longer than _KEEPALIVE_EXPIRY_S since the last success -- the
+    # pooled connection is genuinely likely to be cold again (or actually
+    # evicted by the real pool), so this call should get the same headroom
+    # as a genuinely-first-ever call, not the tight budget.
+    async def slow(request):
+        await asyncio.sleep(1.5)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(slow)
+    from lulu_ads.client import _KEEPALIVE_EXPIRY_S
+    ads._last_success_at = time.monotonic() - (_KEEPALIVE_EXPIRY_S + 1)
+    out = await ads.sponsored_slot(context={"tool": "x"})
+    assert out == GOOD
+
+
+async def test_cold_start_headroom_does_not_override_explicit_timeout_ms():
+    # An explicit timeout_ms is a deliberate integrator choice and must
+    # never be silently overridden, even on a client's genuinely-first call.
+    async def slow(request):
+        await asyncio.sleep(1.5)
+        return httpx.Response(200, json=GOOD)
+    ads = make_client(slow)
+    assert ads._last_success_at is None
+    out = await ads.sponsored_slot(context={"tool": "x"}, timeout_ms=200)
+    assert out is None
+
+
+async def test_warm_up_success_updates_last_success_at():
+    # A successful warm_up()/async_warm_up() health check is real evidence
+    # the connection is live -- it should count the same as a real
+    # sponsored_slot success, so a call right after a completed warm-up
+    # correctly gets the tight steady-state timeout instead of needlessly
+    # waiting up to _COLD_START_TIMEOUT_MS.
+    def handler(request):
+        return httpx.Response(200)
+    ads = make_client(handler)
+    assert ads._last_success_at is None
+    ads.warm_up()
+    assert ads._last_success_at is not None
 
 
 async def test_fast_default_applies_even_with_prompt_when_category_explicit():
     # Explicit category always short-circuits server-side classification,
     # so the fast default applies even though a prompt is also present.
+    # Steady-state guarantee (see test_fast_default_times_out_without_prompt) --
+    # a warmed client, not the exempted first-ever request.
     async def slow(request):
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
         return httpx.Response(200, json=GOOD)
-    ads = make_client(slow)
+    ads = make_warmed_client(slow)
     out = await ads.sponsored_slot(context={"category": "travel.flights", "prompt": "best flights to paris"})
     assert out is None
 
@@ -266,15 +353,17 @@ def test_warm_up_telemetry_call_carries_api_key_header():
 
 
 def test_sync_fast_default_times_out_without_prompt():
+    # Steady-state guarantee -- a warmed client, not the exempted
+    # first-ever request (see test_first_request_ever_gets_cold_start_headroom).
     def slow(request):
-        time.sleep(1.0)
+        time.sleep(2.0)
         return httpx.Response(200, json=GOOD)
-    ads = make_client(slow)
+    ads = make_warmed_client(slow)
     start = time.monotonic()
     out = ads.sponsored_slot_sync(context={"tool": "x"})
     elapsed = time.monotonic() - start
     assert out is None
-    assert elapsed < 1.0  # fast default (800ms) must fire well before the 1.0s handler completes
+    assert elapsed < 2.0  # fast default (1500ms) must fire well before the 2.0s handler completes
 
 
 def test_warm_up_never_raises_on_failure():

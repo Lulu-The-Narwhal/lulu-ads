@@ -1,15 +1,19 @@
 /**
  * Lulu Ads client. Guarantees enforced in code: never throws, hard timeout
- * (default 800ms, or 3000ms when the call implies server-side
+ * (default 1500ms, or 3000ms when the call implies server-side
  * classification -- see resolveTimeoutMs), label always "Sponsored",
  * context keys allowlisted. Ships data, never directives — the host
  * decides whether to render.
  *
- * 800ms isn't a round guess: load testing measured a steady 155-215ms
- * once the connection is warm against production ads.getlulu.dev; 800ms
- * is that floor plus real margin for slower network paths and a cold
- * first connection. The higher 3000ms only applies when ads-server may
- * run its own server-side Gemini classification call (see
+ * 1500ms isn't a round guess: load testing once measured a steady
+ * 155-215ms once the connection is warm against production
+ * ads.getlulu.dev, but real production evidence (2026-07-26, via a live
+ * third-party MCP server) directly contradicted that: calls this client
+ * itself judged NOT cold still measured 796-802ms, right at the old 800ms
+ * line rather than comfortably under it -- so 800ms had already stopped
+ * being real margin. Raised to keep real margin over what's actually been
+ * observed warm. The higher 3000ms only applies when ads-server may run
+ * its own server-side Gemini classification call (see
  * ads-server/app/classify.py) -- see resolveTimeoutMs below.
  *
  * Credentials resolve from opts first, then env vars
@@ -37,15 +41,50 @@ const MAX_VALUE_LEN = 200;
 //
 // FAST_TIMEOUT_MS covers matching + network only. 150ms was already broken
 // for a cold connection alone (measured 2.46s cold vs ~150ms warm against
-// ads-server in production); 800ms clears a cold connection with real
+// ads-server in production); 1500ms clears a cold connection with real
 // margin while staying tight enough that a slow ads-server can't visibly
-// stall the caller's own tool call.
+// stall the caller's own tool call. See this file's module docstring for
+// why this isn't 800ms anymore.
 //
 // CLASSIFY_TIMEOUT_MS covers matching + network + the server-side Gemini
 // hop, and only applies when that hop is actually going to run.
-const FAST_TIMEOUT_MS = 800;
+const FAST_TIMEOUT_MS = 1500;
 const CLASSIFY_TIMEOUT_MS = 3000;
 const DEFAULT_CACHE_TTL_MS = 45_000;
+
+// Root cause of a real, reproducible 0% delivery rate discovered
+// 2026-07-26: remote MCP hosts that reconnect per message (confirmed live:
+// Claude.ai's connector opens a brand-new MCP session -- new TCP/TLS, new
+// clientInfo/initialize handshake, different source IP -- for every single
+// chat message, not once per conversation) mean the underlying HTTP
+// connection this SDK's persistent client pools is cold far more often
+// than "once at process start" -- the platform's default connection-pool
+// idle eviction is on the order of seconds, far shorter than the real gap
+// between two chat messages (a human reading and typing), so a fresh
+// connection is the common case, not a one-time startup cost.
+//
+// First attempt at a fix (shipped, then found wrong on inspection): latch
+// a per-client "have I ever succeeded" boolean and give ONLY the
+// genuinely-first-ever call the larger budget. That's wrong the moment
+// coldness recurs: call 1 succeeds with the extra headroom, the latch
+// flips permanently true, and call 2 -- arriving after the very same kind
+// of idle gap -- gets throttled back to the tight budget while facing an
+// equally cold connection.
+//
+// Real fix: don't latch a boolean -- track WHEN this client last actually
+// succeeded (a real sponsoredSlot response, or a warmUp() health check),
+// and re-arm the larger budget any time that's more than
+// KEEPALIVE_EXPIRY_MS ago (or never happened at all). A connection idle
+// longer than that window is genuinely likely to need a fresh handshake,
+// no matter how many prior calls succeeded; a connection used seconds ago
+// is not, and a slow response on it is almost certainly the server, not
+// the socket.
+const COLD_START_TIMEOUT_MS = 3000;
+
+// How long since this client's last real success before a connection is
+// no longer trusted to still be warm. Mirrors client.py's
+// _KEEPALIVE_EXPIRY_S -- keep both in sync, they hit the same backend.
+const KEEPALIVE_EXPIRY_MS = 90_000;
 
 function resolveTimeoutMs(context: Record<string, unknown> | undefined, timeoutMs: number | undefined): number {
   if (timeoutMs != null) return timeoutMs;
@@ -99,6 +138,16 @@ export class LuluAds {
   private baseUrl: string;
   private cacheTtlMs: number;
   private cache = new Map<string, { value: Sponsored; expiresAt: number }>();
+  // Timestamp (ms since epoch) of this client's last real success (a
+  // sponsoredSlot response or a warmUp() health check) -- null until the
+  // first one. Read by isCold() to decide whether the NEXT call should get
+  // COLD_START_TIMEOUT_MS's headroom. See COLD_START_TIMEOUT_MS's comment
+  // for why this replaced a one-time "ever succeeded" boolean.
+  private lastSuccessAt: number | null = null;
+
+  private isCold(): boolean {
+    return this.lastSuccessAt === null || Date.now() - this.lastSuccessAt > KEEPALIVE_EXPIRY_MS;
+  }
 
   constructor(opts?: { publisherId?: string; apiKey?: string; baseUrl?: string; cacheTtlMs?: number }) {
     this.publisherId = opts?.publisherId ?? process.env.LULU_ADS_PUBLISHER_ID;
@@ -135,18 +184,31 @@ export class LuluAds {
       if (hit && hit.expiresAt > Date.now()) return hit.value;
     }
 
+    // Only when the caller didn't pass their own timeoutMs (an explicit
+    // value is a deliberate choice, never second-guessed): if this
+    // client's last real success was too long ago to trust the
+    // connection is still warm (or there's never been one), give this
+    // call real cold-connection headroom instead of the tight budget. See
+    // COLD_START_TIMEOUT_MS's comment for why this is a per-call,
+    // time-windowed check rather than a one-time latch.
+    let effectiveTimeoutMs = resolveTimeoutMs(opts?.context, opts?.timeoutMs);
+    if (opts?.timeoutMs == null && this.isCold()) {
+      effectiveTimeoutMs = Math.max(effectiveTimeoutMs, COLD_START_TIMEOUT_MS);
+    }
+
     try {
       const res = await fetch(`${this.baseUrl}/slot`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-api-key": this.apiKey! },
         body: JSON.stringify({ context: cleaned }),
-        signal: AbortSignal.timeout(resolveTimeoutMs(opts?.context, opts?.timeoutMs)),
+        signal: AbortSignal.timeout(effectiveTimeoutMs),
       });
       if (res.status !== 200) return null;
       const body = (await res.json()) as { text?: unknown; url?: unknown; logo_url?: unknown };
       if (!body?.text || !body?.url) return null;
       const result: Sponsored = { label: "Sponsored", text: String(body.text), url: String(body.url) };
       if (body.logo_url) result.logoUrl = String(body.logo_url);
+      this.lastSuccessAt = Date.now();
       if (key) this.cache.set(key, { value: result, expiresAt: Date.now() + this.cacheTtlMs });
       return result;
     } catch {
@@ -174,7 +236,8 @@ export class LuluAds {
    */
   async warmUp(): Promise<void> {
     try {
-      await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(5000) });
+      if (res.status === 200) this.lastSuccessAt = Date.now();
     } catch {
       // best-effort
     }
@@ -190,5 +253,5 @@ export class LuluAds {
   }
 }
 
-export { withLuluAds } from "./mcp.js";
+export { withLuluAds, enableLuluAds } from "./mcp.js";
 export { formatCliCard, isCliClient, KNOWN_CLI_CLIENTS } from "./cliCard.js";

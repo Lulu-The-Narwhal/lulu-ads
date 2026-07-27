@@ -90,12 +90,24 @@ result["sponsored"] = await ads.sponsored_slot(
 return result
 ```
 
-FastMCP servers get it in one line — credentials come from the environment:
+FastMCP servers get it in one call — credentials come from the environment,
+and every tool (present and future) gets both the plain `sponsored` data
+field AND, in hosts that support it (e.g. Claude.ai), the rendered
+Sponsored-card widget, automatically:
 
 ```bash
 export LULU_ADS_PUBLISHER_ID=pub_123
 export LULU_ADS_API_KEY=lk_...
 ```
+
+```python
+from lulu_ads.enable import enable_lulu_ads
+
+enable_lulu_ads(mcp, endpoint_url="https://my-server.example.com/mcp")
+```
+
+Just want the data field, no widget? The plain middleware still works on
+its own:
 
 ```python
 mcp.add_middleware(LuluAdsMiddleware())
@@ -114,6 +126,17 @@ npm install lulu-ads
 import { LuluAds } from "lulu-ads";
 const ads = new LuluAds({ publisherId: "pub_123", apiKey: "lk_..." });
 result.sponsored = await ads.sponsoredSlot({ context: { tool: "search_flights" } });
+```
+
+MCP servers built on the official TS SDK get the same one-call treatment —
+data field AND widget on every tool, automatically:
+
+```ts
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { enableLuluAds } from "lulu-ads/mcp";
+
+const server = new McpServer({ name: "my-server", version: "1.0.0" });
+await enableLuluAds(server, { endpointUrl: "https://my-server.example.com/mcp" });
 ```
 
 No publisher ID yet? See [`docs/quickstart.md`](docs/quickstart.md) — three
@@ -141,10 +164,12 @@ result.sponsored = await ads.sponsoredSlot({
 
 | Stack | One-liner | Docs |
 |---|---|---|
-| FastMCP (Python) | `mcp.add_middleware(LuluAdsMiddleware())` | [→](docs/integrations.md#fastmcp-python) |
+| FastMCP (Python), data + widget | `enable_lulu_ads(mcp, endpoint_url=...)` | [→](docs/integrations.md#fastmcp-python) |
+| FastMCP (Python), data only | `mcp.add_middleware(LuluAdsMiddleware())` | [→](docs/integrations.md#fastmcp-python) |
+| MCP TS SDK, data + widget | `await enableLuluAds(server, { endpointUrl })` | [→](docs/integrations.md#mcp-servers-typescript) |
 | LangChain / LangGraph (Python) | `middleware=[LuluAdsAgentMiddleware()]` | [→](docs/integrations.md#langchain--langgraph-python) |
 | CrewAI (Python) | `lulu_crewai.install()` | [→](docs/integrations.md#crewai-python) |
-| MCP TS SDK | `withLuluAds(server)` | [→](docs/integrations.md#mcp-servers-typescript) |
+| MCP TS SDK, data only | `withLuluAds(server)` | [→](docs/integrations.md#mcp-servers-typescript) |
 | Runtime owners (chat bots, WhatsApp/Telegram agents) | `model_output + format_suffix(sponsored)` | [→](docs/integrations.md#runtime-owners-response-suffix) |
 | Any other runtime / language | `sponsored_slot(context)` over the raw contract | [→](docs/integrations.md#any-agent-runtime) |
 
@@ -153,8 +178,16 @@ result.sponsored = await ads.sponsoredSlot({
 The plain `sponsored` field always ships and always works — some hosts
 render it as a card purely on the model's own judgment, no instruction
 anywhere. For hosts that support the [MCP Apps](https://github.com/modelcontextprotocol/ext-apps)
-extension (`io.modelcontextprotocol/ui`), you can additionally register an
-actual rendered widget instead of relying on that judgment call:
+extension (`io.modelcontextprotocol/ui`), `enable_lulu_ads` / `enableLuluAds`
+(see Quickstart above) already register an actual rendered widget and
+attach it to every tool automatically — you don't need anything below this
+line for that. It exists as a distinct step at all because
+`register_sponsored_widget()` requires your server's exact public endpoint
+URL, which `LuluAdsMiddleware`/`withLuluAds` alone have no way to know.
+
+**Prefer per-tool control** (a different widget on different tools, or
+only some tools get one)? Use the lower-level building block directly
+instead of `enable_lulu_ads`:
 
 ```python
 from fastmcp import FastMCP
@@ -190,6 +223,13 @@ const appMeta = await registerSponsoredWidget(server, {
 
 server.registerTool("search", { ...appMeta }, handler);
 ```
+
+This is also what `enable_lulu_ads`/`enableLuluAds` do internally, on your
+behalf, for every tool — found live (2026-07-26) that getting this step
+right per-tool is easy to forget: our own dogfood server had it wired onto
+exactly one tool by hand, and every tool added since then silently never
+got it. If you want automatic coverage with no per-tool step, use
+`enable_lulu_ads`/`enableLuluAds` instead of this directly.
 
 Ships a floating, rounded, gradient card (same visual system as
 [getlulu.dev](https://getlulu.dev)) with a disclosed `Sponsored` label —
@@ -363,7 +403,7 @@ tool call
 your tool's own result
    │
    ▼
-POST /slot  (800ms cap — 3000ms when classifying a raw prompt — allowlisted context only)
+POST /slot  (1500ms cap — 3000ms when classifying a raw prompt — allowlisted context only)
    │
    ▼
 labeled data field  { label: "Sponsored", text, url }   ← attached, never injected
@@ -392,6 +432,40 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.7.0** — Two real bugs, found live against a real third-party MCP
+  server behind Claude.ai's remote connector, both fixed:
+  - **0% ad delivery on hosts that reconnect per message** (confirmed:
+    Claude.ai opens a brand-new MCP session per chat message, not once per
+    conversation). Root cause: this SDK's persistent HTTP connection goes
+    cold on any real idle gap between messages, but only a one-time
+    "have I ever succeeded" check protected the very first call ever —
+    every later cold call still got the tight steady-state timeout and
+    failed. Fixed by re-checking coldness on every call, keyed to time
+    since the last real success, not a permanent latch. Also: the fast
+    steady-state timeout itself was raised 800ms → 1500ms
+    (Python and TS) — production evidence showed even "warm" calls
+    sometimes measuring 796-802ms, right at the old line rather than
+    comfortably under it.
+  - **Ad fetched successfully, never seen by the model.** FastMCP/the
+    MCP TS SDK build a tool result's `content[]` once, from the tool's
+    original return value, before `LuluAdsMiddleware`/`withLuluAds` ever
+    run — mutating `structuredContent` alone (the only thing this SDK's
+    own test suite checked) left `content[]` permanently stale. Confirmed
+    live: the wire response's `structuredContent` demonstrably had
+    `sponsored`, but Claude.ai read and reported back from `content[]`,
+    which didn't. Both SDKs now keep `content[]` in sync whenever it's
+    safe to (a single auto-generated JSON text block); regression tests
+    added for the exact gap that let this ship unnoticed the first time.
+  - **New:** `enable_lulu_ads()` (Python) / `enableLuluAds()` (TS) — one
+    call that wires both the data field AND the rendered MCP Apps widget
+    onto every tool automatically, present and future. Existing
+    `register_sponsored_widget()`/`registerSponsoredWidget()` +
+    `app=`/`_meta.ui` per tool still works and is now documented as the
+    lower-level building block for per-tool control; the gap it left (an
+    easy-to-forget manual step per tool) is exactly what this closes —
+    found live on our own dogfood server, which had wired the widget onto
+    exactly one tool by hand and silently never updated it for tools
+    added since.
 - **0.6.2** — The sponsored card now plays a one-time diagonal light sweep
   across itself when it settles into the loaded state (a real ad won) —
   pure CSS (`.card-shine` in `js/widget-src/src/index.css`), fires exactly

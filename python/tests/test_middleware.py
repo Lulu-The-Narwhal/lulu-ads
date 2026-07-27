@@ -104,6 +104,30 @@ async def test_non_cli_client_gets_no_card():
     assert result.structured_content.get("sponsored") == GOOD
 
 
+async def test_non_cli_client_content_matches_structured_content():
+    # Regression test for a real, live-confirmed bug: FastMCP builds
+    # content[] once, from the tool's ORIGINAL return value, before this
+    # middleware ever runs. Mutating structured_content alone (the only
+    # thing the OTHER tests here checked) left content[] permanently stale
+    # -- still the pre-ad JSON. Confirmed against a real MCP client
+    # (Claude.ai): the wire response's structuredContent demonstrably had
+    # "sponsored", but the client read and reported back from content[],
+    # which didn't -- so the ad was fetched successfully and never seen.
+    # Every other test in this file asserted structured_content only, which
+    # is exactly why this shipped unnoticed. content[] must carry the same
+    # data structured_content does, not just a human-readable card (that's
+    # the is_cli path, covered separately).
+    import json
+
+    mw = make_middleware(lambda r: httpx.Response(200, json=GOOD))
+    async with Client(make_server(mw)) as client:  # default client_info, not claude-code
+        result = await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
+    assert len(result.content) == 1
+    content_json = json.loads(result.content[0].text)
+    assert content_json.get("sponsored") == GOOD
+    assert content_json == result.structured_content
+
+
 async def test_cli_text_mode_strips_structured_content_for_schemaless_tools():
     mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x", cli_text_mode=True, auto_warm_up=False)
     mw._ads._transport = httpx.MockTransport(lambda r: httpx.Response(200, json=GOOD))

@@ -4,7 +4,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { z } from "zod";
 import { LuluAds } from "../src/index.js";
-import { withLuluAds } from "../src/mcp.js";
+import { withLuluAds, enableLuluAds } from "../src/mcp.js";
+
+const ENDPOINT = "https://my-server.example.com/mcp";
 
 const GOOD = { label: "Sponsored", text: "Lulu Ads", url: "https://ads.getlulu.dev/c/x" };
 
@@ -156,4 +158,81 @@ test("withLuluAds never warms a caller-supplied client", async () => {
   withLuluAds(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
   await new Promise((r) => setTimeout(r, 10));
   expect(calls).toEqual([]);
+});
+
+test("enableLuluAds attaches widget config to a tool registered after the call", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  await enableLuluAds(server, {
+    endpointUrl: ENDPOINT,
+    ads: new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }),
+    autoWarmUp: false,
+  });
+  server.registerTool("search", { inputSchema: {} }, async () => ({
+    content: [{ type: "text", text: "{}" }],
+    structuredContent: { flights: [] },
+  }));
+  const client = await connectedPair(server);
+  const { tools }: any = await client.listTools();
+  const tool = tools.find((t: any) => t.name === "search");
+  expect(tool._meta?.ui?.resourceUri).toBe("ui://lulu-ads/sponsored.html");
+});
+
+test("enableLuluAds excluded tool gets no widget config", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  await enableLuluAds(server, {
+    endpointUrl: ENDPOINT,
+    ads: new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }),
+    autoWarmUp: false,
+    excludeTools: ["private_tool"],
+  });
+  server.registerTool("private_tool", { inputSchema: {} }, async () => ({
+    content: [{ type: "text", text: "{}" }],
+    structuredContent: { secret: true },
+  }));
+  const client = await connectedPair(server);
+  const { tools }: any = await client.listTools();
+  const tool = tools.find((t: any) => t.name === "private_tool");
+  expect(tool._meta?.ui).toBeUndefined();
+});
+
+test("enableLuluAds never overrides a tool's own explicit widget config", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  await enableLuluAds(server, {
+    endpointUrl: ENDPOINT,
+    ads: new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }),
+    autoWarmUp: false,
+  });
+  server.registerTool("search", {
+    inputSchema: {},
+    _meta: { ui: { resourceUri: "ui://custom/widget.html", visibility: ["model"] } },
+  }, async () => ({
+    content: [{ type: "text", text: "{}" }],
+    structuredContent: { flights: [] },
+  }));
+  const client = await connectedPair(server);
+  const { tools }: any = await client.listTools();
+  const tool = tools.find((t: any) => t.name === "search");
+  expect(tool._meta?.ui?.resourceUri).toBe("ui://custom/widget.html");
+});
+
+test("enableLuluAds: data and widget both apply end-to-end", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  await enableLuluAds(server, {
+    endpointUrl: ENDPOINT,
+    ads: new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }),
+    autoWarmUp: false,
+  });
+  server.registerTool("search", { inputSchema: {} }, async () => ({
+    content: [{ type: "text", text: JSON.stringify({ flights: [1] }) }],
+    structuredContent: { flights: [1] },
+  }));
+  const client = await connectedPair(server);
+  const res: any = await client.callTool({ name: "search", arguments: {} });
+  expect(res.structuredContent.sponsored).toEqual(GOOD);
+  const contentJson = JSON.parse(res.content[0].text);
+  expect(contentJson.sponsored).toEqual(GOOD);
 });

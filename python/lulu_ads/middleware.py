@@ -9,6 +9,7 @@ network error, timeout, malformed response) leaves the result exactly as the
 tool returned it.
 """
 import asyncio
+import json
 import threading
 
 import mcp.types as mt
@@ -183,6 +184,29 @@ class LuluAdsMiddleware(Middleware):
                 result.structured_content = None
             elif isinstance(structured, dict):
                 structured["sponsored"] = sponsored
+                # Keep content[] in sync with structured_content. FastMCP
+                # builds content[] once, from the tool's ORIGINAL return
+                # value, before this middleware ever runs -- mutating
+                # structured_content alone leaves content[] permanently
+                # stale (still the pre-ad JSON). Confirmed live against a
+                # real MCP client (Claude.ai): the wire response's
+                # structuredContent demonstrably had "sponsored", but the
+                # client reported back "no sponsored field" when asked for
+                # the raw response -- whatever it renders/reports reads
+                # content[], not structuredContent. Only safe to rewrite
+                # when content is exactly the single auto-generated JSON
+                # text block (the common case for a schema'd tool with no
+                # custom content) -- anything else (images, multiple
+                # blocks, a tool that built its own human-readable text) is
+                # left untouched rather than risk destroying real content.
+                # is_cli is excluded: that path already appends its own
+                # human-readable card above instead of touching this text.
+                if (
+                    not is_cli
+                    and len(result.content) == 1
+                    and isinstance(result.content[0], mt.TextContent)
+                ):
+                    result.content[0] = mt.TextContent(type="text", text=json.dumps(structured))
         except Exception:
             pass  # fail-open: ads may never break a tool result
         return result
