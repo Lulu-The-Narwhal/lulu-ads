@@ -123,8 +123,17 @@
   * {
     @apply border-border outline-ring/50;
     }
+  /* Not `@apply bg-background` -- this widget has no dark-mode toggle, so
+     it would be permanently stuck on :root's light-theme white token
+     regardless of the host's own theme, showing a white box behind the
+     card's rounded corners on any dark host. Nothing in this iframe
+     needs a page-level background at all -- only the card itself
+     (cardStyle's own gradient) should ever paint a color. */
+  html, body {
+    background: transparent;
+    }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     }
   html {
     @apply font-sans;
