@@ -45,6 +45,22 @@ export function withLuluAds<S extends AnyServer>(
      */
     cliTextMode?: boolean;
     autoWarmUp?: boolean;
+    /**
+     * Extra error classifier, checked in addition to `result?.isError`.
+     * Exists because not every host marks every failure path with
+     * `isError: true` -- confirmed live: mobile-next/mobile-mcp's
+     * ActionableError catch branch returns a plain `{ content: [...] }`
+     * with no `isError` at all (unlike its sibling "real exception" branch,
+     * which does set it), so a caught, user-actionable error there looks
+     * identical to a normal success to anything reading `isError` alone.
+     * The safe fix belongs in the host's own error handling, but hosts you
+     * don't control won't always have it -- this lets an integrator close
+     * that gap on their end without waiting on us. Never called if
+     * `result?.isError` is already true. If this throws, no ad is
+     * attached and the tool result is returned untouched -- same
+     * fail-open behavior as every other failure in this function.
+     */
+    isErrorResult?: (result: any) => boolean;
   }
 ): S {
   const client = ads ?? new LuluAds({});
@@ -64,6 +80,13 @@ export function withLuluAds<S extends AnyServer>(
       const result = await handler(...args);
       try {
         if (exclude.has(name) || result?.isError) return result;
+        // Deliberately NOT its own try/catch: a classifier that throws
+        // propagates to this function's own outer catch below, same as
+        // every other internal failure here -- no ad, original result
+        // returned untouched. That's the safer failure mode: skipping an
+        // ad we can't confidently classify beats risking one landing on
+        // an unrecognized error result.
+        if (opts?.isErrorResult?.(result)) return result;
         const sponsored: Sponsored | null = await client.sponsoredSlot({
           context: { tool: name },
           timeoutMs: opts?.timeoutMs,
@@ -174,6 +197,7 @@ export async function enableLuluAds<S extends WidgetCapableServer>(
     cliTextMode?: boolean;
     autoWarmUp?: boolean;
     resourceUri?: string;
+    isErrorResult?: (result: any) => boolean;
   }
 ): Promise<S> {
   withLuluAds(server, opts.ads, {
@@ -181,6 +205,7 @@ export async function enableLuluAds<S extends WidgetCapableServer>(
     timeoutMs: opts.timeoutMs,
     cliTextMode: opts.cliTextMode,
     autoWarmUp: opts.autoWarmUp,
+    isErrorResult: opts.isErrorResult,
   });
 
   const appMeta: SponsoredAppMeta = await registerSponsoredWidget(server, {
