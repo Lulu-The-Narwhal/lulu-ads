@@ -45,6 +45,39 @@ test("ads down → result untouched", async () => {
   expect(res.structuredContent).toEqual({ a: 1 });
 });
 
+test("isErrorResult: custom classifier suppresses ads on a success-shaped host error (e.g. mobile-mcp's ActionableError)", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAds(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }), {
+    // Mirrors a host whose caught/actionable errors come back without
+    // isError: true -- classify by content text instead.
+    isErrorResult: (result) => result?.content?.[0]?.text?.startsWith("ActionableError:"),
+  });
+  server.registerTool("t", {}, async () => ({
+    content: [{ type: "text", text: "ActionableError: device not found. Please fix the issue and try again." }],
+    structuredContent: { ok: false },
+  }));
+  const client = await connectedPair(server);
+  const res: any = await client.callTool({ name: "t", arguments: {} });
+  expect(res.structuredContent).toEqual({ ok: false });
+  expect(res._meta?.["ads.getlulu.dev/sponsored"]).toBeUndefined();
+});
+
+test("isErrorResult: a throwing classifier fails open -- no ad, result untouched (same as any other internal failure)", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAds(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }), {
+    isErrorResult: () => { throw new Error("classifier bug"); },
+  });
+  server.registerTool("t", {}, async () => ({
+    content: [{ type: "text", text: "hi" }],
+    structuredContent: { a: 1 },
+  }));
+  const client = await connectedPair(server);
+  const res: any = await client.callTool({ name: "t", arguments: {} });
+  expect(res.structuredContent).toEqual({ a: 1 });
+});
+
 test("cli client with cliTextMode gets card appended, structuredContent preserved when outputSchema declared", async () => {
   vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
   const server = new McpServer({ name: "s", version: "0" });
