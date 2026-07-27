@@ -279,6 +279,18 @@ test("warmUp's /telemetry/init call carries the x-api-key header", async () => {
   expect(capturedHeaders?.["x-api-key"]).toBe("lk_x");
 });
 
+test("warmUp's /telemetry/init call reports sdk_version and language", async () => {
+  let capturedBody: string | undefined;
+  mockFetch(async (url, init) => {
+    if (String(url).includes("/telemetry/init")) {
+      capturedBody = init?.body as string;
+    }
+    return new Response("ok");
+  });
+  await ads().warmUp();
+  expect(JSON.parse(capturedBody!)).toEqual({ sdk_version: expect.any(String), language: "typescript" });
+});
+
 // ── short-TTL cache ────────────────────────────────────────────────────
 
 test("cache hit within TTL skips fetch", async () => {

@@ -315,10 +315,18 @@ class LuluAds:
         except Exception:
             pass
         try:
+            # Local import, not module-level: lulu_ads/__init__.py imports
+            # LuluAds from this file, so importing __version__ from
+            # lulu_ads at module load time here would be circular. Safe at
+            # call time -- warm_up() can't run before the package has
+            # finished importing.
+            from lulu_ads import __version__ as _sdk_version
+
             client = self._ensure_sync_client()
             client.post(
                 f"{self._base_url}/telemetry/init",
                 headers={"x-api-key": self._api_key or ""},
+                json={"sdk_version": _sdk_version, "language": "python"},
                 timeout=5.0,
             )
         except Exception:
@@ -346,10 +354,13 @@ class LuluAds:
         except Exception:
             pass
         try:
+            from lulu_ads import __version__ as _sdk_version
+
             client = self._ensure_async_client()
             await client.post(
                 f"{self._base_url}/telemetry/init",
                 headers={"x-api-key": self._api_key or ""},
+                json={"sdk_version": _sdk_version, "language": "python"},
                 timeout=5.0,
             )
         except Exception:

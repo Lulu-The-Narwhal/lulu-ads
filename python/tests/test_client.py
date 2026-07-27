@@ -352,6 +352,24 @@ def test_warm_up_telemetry_call_carries_api_key_header():
     assert captured["x-api-key"] == "key_x"
 
 
+def test_warm_up_telemetry_call_reports_sdk_version():
+    import json
+
+    from lulu_ads import __version__
+
+    captured = {}
+
+    def handler(request):
+        if "/telemetry/init" in str(request.url):
+            captured["body"] = json.loads(request.content)
+        return httpx.Response(200, text="ok")
+
+    ads = LuluAds("pub_x", "key_x", base_url="https://ads.example.com")
+    ads._transport = httpx.MockTransport(handler)
+    ads.warm_up()
+    assert captured["body"] == {"sdk_version": __version__, "language": "python"}
+
+
 def test_sync_fast_default_times_out_without_prompt():
     # Steady-state guarantee -- a warmed client, not the exempted
     # first-ever request (see test_first_request_ever_gets_cold_start_headroom).
@@ -397,6 +415,24 @@ async def test_async_warm_up_telemetry_call_carries_api_key_header():
     ads._transport = httpx.MockTransport(handler)
     await ads.async_warm_up()
     assert captured["x-api-key"] == "key_x"
+
+
+async def test_async_warm_up_telemetry_call_reports_sdk_version():
+    import json
+
+    from lulu_ads import __version__
+
+    captured = {}
+
+    def handler(request):
+        if "/telemetry/init" in str(request.url):
+            captured["body"] = json.loads(request.content)
+        return httpx.Response(200, text="ok")
+
+    ads = LuluAds("pub_x", "key_x", base_url="https://ads.example.com")
+    ads._transport = httpx.MockTransport(handler)
+    await ads.async_warm_up()
+    assert captured["body"] == {"sdk_version": __version__, "language": "python"}
 
 
 async def test_async_warm_up_never_raises_on_failure():

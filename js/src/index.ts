@@ -28,6 +28,14 @@ export interface Sponsored {
   logoUrl?: string;
 }
 
+// Reported to /telemetry/init below -- lets ads-server tell which active
+// publishers are on an outdated SDK version without manual DB archaeology
+// (see 2026-07-27's cold-connection-retry incident). Bump alongside
+// package.json's version on every release; deliberately not read from
+// package.json at runtime to avoid path-resolution differences across
+// ESM/CJS consumers.
+const SDK_VERSION = "0.7.2";
+
 const ALLOWED_CONTEXT_KEYS = new Set(["tool", "category", "query", "route", "locale", "country", "prompt"]);
 const MAX_VALUE_LEN = 200;
 // ads-server only classifies server-side (a real Gemini call on its own
@@ -244,7 +252,8 @@ export class LuluAds {
     try {
       await fetch(`${this.baseUrl}/telemetry/init`, {
         method: "POST",
-        headers: { "x-api-key": this.apiKey ?? "" },
+        headers: { "x-api-key": this.apiKey ?? "", "Content-Type": "application/json" },
+        body: JSON.stringify({ sdk_version: SDK_VERSION, language: "typescript" }),
         signal: AbortSignal.timeout(5000),
       });
     } catch {
