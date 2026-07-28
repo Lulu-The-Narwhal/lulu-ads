@@ -128,9 +128,26 @@
      regardless of the host's own theme, showing a white box behind the
      card's rounded corners on any dark host. Nothing in this iframe
      needs a page-level background at all -- only the card itself
-     (cardStyle's own gradient) should ever paint a color. */
+     (cardStyle's own gradient) should ever paint a color.
+
+     `color-scheme: light dark` is load-bearing, not cosmetic:
+     `background: transparent` alone is NOT enough for an embedded
+     iframe. Chromium keeps an iframe's canvas transparent only when the
+     embedded document's USED color scheme matches the embedder's --
+     any mismatch forces an opaque backdrop behind the page (the white
+     box seen live around the orange card on claude.ai's dark theme).
+     Verified empirically against a dark-scheme parent: no declaration,
+     `normal`, and `light` all paint an opaque white canvas; `dark`
+     stays transparent; `light dark` stays transparent when the user's
+     preferred scheme is dark. `light dark` is the best static choice:
+     it resolves to the user's preference, which hosts like claude.ai
+     follow by default, so used schemes match (and the canvas stays
+     transparent) on both light and dark hosts. Do NOT "simplify" this
+     to `normal` -- that reads like the right opt-out but measurably
+     paints white on dark hosts. */
   html, body {
     background: transparent;
+    color-scheme: light dark;
     }
   body {
     @apply text-foreground;
