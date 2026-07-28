@@ -432,6 +432,19 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.7.4** — Widget: the sponsored card's iframe canvas no longer paints
+  an opaque white box on dark hosts. `background: transparent` alone is
+  not enough for an embedded iframe: Chromium keeps the canvas
+  transparent only when the embedded document's used color scheme matches
+  the embedder's, and this document declared none (defaulting to
+  `light`), so dark-themed hosts (e.g. claude.ai in dark mode) forced a
+  white backdrop behind the card. The widget now declares
+  `color-scheme: light dark`, which resolves to the user's preferred
+  scheme — matching hosts that follow it (claude.ai does by default) on
+  both light and dark themes. Verified empirically against light- and
+  dark-scheme embedding pages. (Also aligns `lulu_ads.__version__`, which
+  had drifted to 0.7.2 while the packages published as 0.7.3.)
+
 - **0.7.0** — Two real bugs, found live against a real third-party MCP
   server behind Claude.ai's remote connector, both fixed:
   - **0% ad delivery on hosts that reconnect per message** (confirmed:
