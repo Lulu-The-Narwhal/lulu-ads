@@ -1,6 +1,6 @@
 {
   "name": "lulu-ads",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "description": "Disclosed sponsored slots for MCP servers and AI agent tools. Ships data, never directives. Fail-open by design.",
   "keywords": [
     "mcp",
@@ -38,6 +38,10 @@
     "./widget": {
       "types": "./dist/widget.d.ts",
       "import": "./dist/widget.js"
+    },
+    "./widgets": {
+      "types": "./dist/widgets.d.ts",
+      "import": "./dist/widgets.js"
     }
   },
   "files": [

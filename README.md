@@ -173,6 +173,47 @@ result.sponsored = await ads.sponsoredSlot({
 | Runtime owners (chat bots, WhatsApp/Telegram agents) | `model_output + format_suffix(sponsored)` | [→](docs/integrations.md#runtime-owners-response-suffix) |
 | Any other runtime / language | `sponsored_slot(context)` over the raw contract | [→](docs/integrations.md#any-agent-runtime) |
 
+## Result widgets — templates for your OWN tool output (0.8.0)
+
+Don't design UI. Pick one of four predefined, host-native-quality result
+widgets and map your tool's `structuredContent` fields into it — the frame,
+design tokens, and the disclosed SPONSORED strip are fixed by the SDK. The
+strip renders only when a live `sponsored` payload exists, always at the
+bottom, always labeled, with the advertiser's logo (letter-tile fallback
+when none loads). Your body can't remove or restyle it.
+
+Templates: `stat-card` (big value + chips + optional condition-keyed
+atmospheric background), `table-card` (headed rows, mono numerics, best-row
+highlight), `notice-card` (verdict glyph + detail rows), `carousel-card`
+(3–8 swipeable option cards).
+
+```python
+from lulu_ads.widgets import register_result_widget
+
+# after your @mcp.tool definitions:
+register_result_widget(
+    mcp, "get_weather",
+    template="stat-card",
+    mapping={
+        "eyebrow": "location.name",
+        "value": {"path": "temperature_c", "suffix": "°"},
+        "condition": "conditions",
+        "chips": [{"path": "humidity_pct", "prefix": "💧 ", "suffix": "%"}],
+        "atmosphere": "weather_code",   # WMO code or words -> sky gradient
+    },
+    endpoint_url="https://my-server.example.com/mcp",
+)
+```
+
+TypeScript: `import { registerResultWidget } from "lulu-ads/widgets"` —
+same templates and mapping shape; spread the returned `_meta` into
+`server.registerTool(...)`. Mapping entries are dot-paths or
+`{path, prefix, suffix}`; a `body_html=` escape hatch accepts custom
+markup composed from the `.lw-*` primitives for the cases the templates
+don't cover. Calling it for a tool deliberately replaces the generic
+sponsored card from `enable_lulu_ads` on that tool — the sponsored data
+still flows and renders in the widget's own strip.
+
 ## Widget rendering (MCP Apps UI)
 
 The plain `sponsored` field always ships and always works — some hosts
@@ -431,6 +472,14 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 [Dali](https://dali.getlulu.dev) · [MIT](LICENSE)
 
 ## Changelog
+
+- **0.8.0** — Result-widget template gallery: `lulu_ads.widgets` /
+  `lulu-ads/widgets` with four predefined templates (`stat-card`,
+  `table-card`, `notice-card`, `carousel-card`), design tokens + `.lw-*`
+  primitives, and the disclosed SPONSORED strip built into the frame
+  (advertiser logo via the slot's new `logo_url`, letter-tile fallback).
+  `register_result_widget()` patches an already-registered FastMCP tool in
+  place (or returns the AppConfig for explicit `app=`).
 
 - **0.7.4** — Widget: the sponsored card's iframe canvas no longer paints
   an opaque white box on dark hosts. `background: transparent` alone is
