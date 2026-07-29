@@ -173,7 +173,7 @@ result.sponsored = await ads.sponsoredSlot({
 | Runtime owners (chat bots, WhatsApp/Telegram agents) | `model_output + format_suffix(sponsored)` | [→](docs/integrations.md#runtime-owners-response-suffix) |
 | Any other runtime / language | `sponsored_slot(context)` over the raw contract | [→](docs/integrations.md#any-agent-runtime) |
 
-## Result widgets — templates for your OWN tool output (0.8.0)
+## Result widgets — templates for your OWN tool output (0.8.1)
 
 Don't design UI. Pick one of four predefined, host-native-quality result
 widgets and map your tool's `structuredContent` fields into it — the frame,
@@ -473,7 +473,8 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
-- **0.8.0** — Result-widget template gallery: `lulu_ads.widgets` /
+- **0.8.1** — Result-widget template gallery (supersedes 0.8.0, which
+  briefly shipped on npm with a louder strip design): `lulu_ads.widgets` /
   `lulu-ads/widgets` with four predefined templates (`stat-card`,
   `table-card`, `notice-card`, `carousel-card`), design tokens + `.lw-*`
   primitives, and the disclosed SPONSORED strip built into the frame

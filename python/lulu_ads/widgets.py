@@ -201,38 +201,66 @@ FRAME_HTML = r"""<!doctype html>
   .lw-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.25); }
   .lw-dot.on { background: var(--lw-orange); }
 
-  /* SPONSORED strip -- fixed by the SDK, verbatim from the approved mock. */
+  /* SPONSORED strip -- fixed by the SDK, verbatim from the approved mock
+     (final): rounded gradient chip (no full-height rail), one-shot sheen,
+     and a column reflow on narrow iframes. One DOM structure for both
+     layouts -- on desktop the row wrappers are display:contents so the
+     leaf elements flatten into the strip's own flex row (ordered), and
+     the <=440px media query restores the wrappers into the stacked
+     chip-bar + logo/text column layout. */
   .lw-strip {
-    display: none; align-items: stretch;
-    background: linear-gradient(90deg, rgba(0,0,0,.42), rgba(0,0,0,.30));
+    display: none; align-items: center; gap: 10px; padding: 9px 14px;
+    background: rgba(0,0,0,.30);
     font-size: 12.5px; position: relative; overflow: hidden; cursor: pointer;
   }
   .lw-strip.show { display: flex; }
   .lw-strip::after {
     content: ""; position: absolute; top: 0; bottom: 0; width: 55%; left: -60%;
-    background: linear-gradient(105deg, transparent 0%, rgba(255,255,255,.13) 45%,
-      rgba(255,214,178,.20) 50%, rgba(255,255,255,.13) 55%, transparent 100%);
-    animation: lw-shine 7s ease-in-out infinite; pointer-events: none;
+    background: linear-gradient(105deg, transparent 0%, rgba(255,255,255,.10) 45%,
+      rgba(255,214,178,.14) 50%, rgba(255,255,255,.10) 55%, transparent 100%);
+    animation: lw-shine 2.4s ease-out .8s 1 forwards; pointer-events: none;
   }
-  @keyframes lw-shine { 0%, 55% { left: -60%; } 80%, 100% { left: 120%; } }
+  @keyframes lw-shine { 0% { left: -60%; } 100% { left: 120%; } }
   @media (prefers-reduced-motion: reduce) { .lw-strip::after { animation: none; display: none; } }
+  .lw-strip .toprow, .lw-strip .bottomrow, .lw-strip .rightcol, .lw-strip .ctarow { display: contents; }
   .lw-strip .badge {
     background: linear-gradient(180deg, #F5A053 0%, #E8763C 55%, #D95F27 100%);
-    color: #fff; font-size: 9px; font-weight: 800; letter-spacing: .12em;
-    display: flex; align-items: center; padding: 0 11px; flex-shrink: 0;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
+    color: #fff; font-size: 9.5px; font-weight: 800; letter-spacing: .12em;
+    border-radius: 6px; padding: 4px 9px; flex-shrink: 0; order: 0;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
   }
-  .lw-strip .right { display: flex; align-items: center; gap: 9px; padding: 8px 13px; flex: 1; min-width: 0; }
   .lw-logo {
     width: 26px; height: 26px; border-radius: 7px; background: #fff;
     display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; overflow: hidden;
+    flex-shrink: 0; overflow: hidden; order: 1;
   }
   .lw-logo img { width: 18px; height: 18px; object-fit: contain; }
   .lw-logo.fallback { color: #fff; font-weight: 800; font-size: 13px; }
-  .lw-strip .txt { flex: 1; color: var(--lw-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .lw-strip .cta { color: #FFC46B; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
-  .lw-strip .via { font-size: 8.5px; color: var(--lw-ink-faint); white-space: nowrap; flex-shrink: 0; }
+  .lw-strip .txt {
+    flex: 1; color: var(--lw-ink); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; order: 2; min-width: 0;
+  }
+  .lw-strip .cta { color: #FFC46B; font-weight: 700; white-space: nowrap; flex-shrink: 0; order: 3; }
+  .lw-strip .via { font-size: 11px; color: var(--lw-ink-faint); white-space: nowrap; flex-shrink: 0; order: 4; }
+  @media (max-width: 440px) {
+    .lw-strip.show { flex-direction: column; align-items: stretch; gap: 8px; padding: 0 0 10px; }
+    .lw-strip .badge, .lw-logo, .lw-strip .txt, .lw-strip .cta, .lw-strip .via { order: 0; }
+    .lw-strip .toprow {
+      display: flex; align-items: center; justify-content: space-between;
+      background: linear-gradient(180deg, #F5A053 0%, #E8763C 55%, #D95F27 100%);
+      padding: 6px 14px; box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
+    }
+    .lw-strip .toprow .badge { background: none; box-shadow: none; padding: 0; border-radius: 0; }
+    .lw-strip .toprow .via { color: rgba(255,255,255,.85); }
+    .lw-strip .bottomrow { display: flex; gap: 11px; align-items: flex-start; padding: 0 14px; }
+    .lw-strip .rightcol { display: block; flex: 1; min-width: 0; }
+    .lw-strip .txt {
+      white-space: normal; overflow: visible; display: -webkit-box;
+      -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 1.45;
+    }
+    .lw-strip .ctarow { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+    .lw-value { font-size: 46px; }
+  }
 
   .lw-skel { height: 84px; }
   .lw-err { padding: 22px 20px 26px; font-size: 14px; color: var(--lw-ink-soft); }
@@ -242,12 +270,16 @@ FRAME_HTML = r"""<!doctype html>
   <div class="lw-card" id="card" data-lw-config="__LW_CONFIG__">
     <div id="body-slot"><div class="lw-skel" id="skel"></div></div>
     <div class="lw-strip" id="strip">
-      <span class="badge">SPONSORED</span>
-      <div class="right">
-        <span class="lw-logo" id="sp-logo" style="display:none"></span>
-        <span class="txt" id="sp-text"></span>
-        <span class="cta" id="sp-cta">Learn more →</span>
+      <div class="toprow">
+        <span class="badge">SPONSORED</span>
         <span class="via">via Lulu Ads</span>
+      </div>
+      <div class="bottomrow">
+        <span class="lw-logo" id="sp-logo" style="display:none"></span>
+        <div class="rightcol">
+          <span class="txt" id="sp-text"></span>
+          <div class="ctarow"><span class="cta" id="sp-cta">Learn more →</span></div>
+        </div>
       </div>
     </div>
   </div>
