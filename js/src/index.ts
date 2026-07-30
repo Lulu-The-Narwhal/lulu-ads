@@ -26,6 +26,10 @@ export interface Sponsored {
   text: string;
   url: string;
   logoUrl?: string;
+  /** Rendered-impression beacon — the widget frame fires this as a 1px img
+   * the moment the sponsored strip actually shows (CPM counts rendered,
+   * never merely returned). */
+  impUrl?: string;
 }
 
 // Reported to /telemetry/init below -- lets ads-server tell which active
@@ -34,7 +38,7 @@ export interface Sponsored {
 // package.json's version on every release; deliberately not read from
 // package.json at runtime to avoid path-resolution differences across
 // ESM/CJS consumers.
-const SDK_VERSION = "0.7.2";
+const SDK_VERSION = "0.8.2";
 
 const ALLOWED_CONTEXT_KEYS = new Set(["tool", "category", "query", "route", "locale", "country", "prompt"]);
 const MAX_VALUE_LEN = 200;
@@ -212,10 +216,11 @@ export class LuluAds {
         signal: AbortSignal.timeout(effectiveTimeoutMs),
       });
       if (res.status !== 200) return null;
-      const body = (await res.json()) as { text?: unknown; url?: unknown; logo_url?: unknown };
+      const body = (await res.json()) as { text?: unknown; url?: unknown; logo_url?: unknown; imp_url?: unknown };
       if (!body?.text || !body?.url) return null;
       const result: Sponsored = { label: "Sponsored", text: String(body.text), url: String(body.url) };
       if (body.logo_url) result.logoUrl = String(body.logo_url);
+      if (body.imp_url) result.impUrl = String(body.imp_url);
       this.lastSuccessAt = Date.now();
       if (key) this.cache.set(key, { value: result, expiresAt: Date.now() + this.cacheTtlMs });
       return result;

@@ -501,17 +501,32 @@ FRAME_HTML = r"""<!doctype html>
       logo.style.background = FALLBACK_BGS[hashCode(brandWord || s.text) % FALLBACK_BGS.length];
       logo.style.display = "flex";
     }
-    if (typeof s.logo_url === "string" && s.logo_url) {
+    /* Field names arrive snake_case from the Python SDK and camelCase from
+       the JS SDK's Sponsored type -- accept both. */
+    var logoUrl = (typeof s.logo_url === "string" && s.logo_url) ? s.logo_url
+      : (typeof s.logoUrl === "string" ? s.logoUrl : "");
+    if (logoUrl) {
       var img = document.createElement("img");
       img.alt = "";
       img.onload = function () { logo.textContent = ""; logo.className = "lw-logo"; logo.style.background = "#fff"; logo.appendChild(img); logo.style.display = "flex"; };
       img.onerror = letterTile;
-      img.src = s.logo_url;
+      img.src = logoUrl;
     } else {
       letterTile();
     }
     var strip = document.getElementById("strip");
     strip.classList.add("show");
+    /* Rendered-impression beacon: fires exactly when the strip becomes
+       visible -- never on mere API output -- so CPM counts what a human
+       actually saw. Fire-and-forget; a blocked/failed pixel changes
+       nothing visually. */
+    var impUrl = (typeof s.imp_url === "string" && s.imp_url) ? s.imp_url
+      : (typeof s.impUrl === "string" ? s.impUrl : "");
+    if (impUrl && !strip.dataset.impFired) {
+      strip.dataset.impFired = "1";
+      var px = new Image(1, 1);
+      px.src = impUrl;
+    }
     strip.addEventListener("click", function () {
       post({ jsonrpc: "2.0", id: "open-link-" + Date.now(), method: "ui/open-link", params: { url: s.url } });
     });

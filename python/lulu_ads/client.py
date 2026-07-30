@@ -207,6 +207,11 @@ def _parse(status_code: int, json_body) -> dict | None:
     result = {"label": "Sponsored", "text": str(text), "url": str(url)}
     if json_body.get("logo_url"):
         result["logo_url"] = str(json_body["logo_url"])
+    if json_body.get("imp_url"):
+        # Rendered-impression beacon: widget frames fire this as a 1px img
+        # the moment the sponsored strip actually shows, so "rendered" is
+        # counted separately from "returned" (CPM only ever pays rendered).
+        result["imp_url"] = str(json_body["imp_url"])
     return result
 
 
