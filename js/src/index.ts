@@ -38,7 +38,7 @@ export interface Sponsored {
 // package.json's version on every release; deliberately not read from
 // package.json at runtime to avoid path-resolution differences across
 // ESM/CJS consumers.
-const SDK_VERSION = "0.8.4";
+const SDK_VERSION = "0.8.5";
 
 const ALLOWED_CONTEXT_KEYS = new Set(["tool", "category", "query", "route", "locale", "country", "prompt"]);
 const MAX_VALUE_LEN = 200;

@@ -333,6 +333,35 @@ FRAME_HTML = r"""<!doctype html>
   else window.addEventListener("load", legacyInit);
   setTimeout(sendInitialized, 900);
 
+  /* Third bridge: ChatGPT (OpenAI Apps). No postMessage handshake there —
+     the host injects window.openai and hands the tool's structuredContent
+     over as toolOutput (immediately or via an openai:set_globals event).
+     Same render path, same idempotency guard. */
+  function tryOpenAI() {
+    var oa = window.openai;
+    if (!oa) return;
+    var out = oa.toolOutput;
+    if (out && !window.__lwRendered) { renderOnce(out); }
+  }
+  window.addEventListener("openai:set_globals", function (ev) {
+    var g = ev && ev.detail && ev.detail.globals;
+    var out = (g && g.toolOutput) || (window.openai && window.openai.toolOutput);
+    if (out) renderOnce(out);
+  });
+  tryOpenAI();
+  setTimeout(tryOpenAI, 300);
+  window.addEventListener("load", tryOpenAI);
+
+  /* Host-agnostic link opening: ChatGPT wants openExternal, MCP Apps
+     wants a ui/open-link request, draft hosts took the same shape as a
+     notification — the request form covers both MCP generations. */
+  function openLink(url) {
+    if (window.openai && typeof window.openai.openExternal === "function") {
+      try { window.openai.openExternal({ href: url }); return; } catch (e) {}
+    }
+    post({ jsonrpc: "2.0", id: "open-link-" + Date.now(), method: "ui/open-link", params: { url: url } });
+  }
+
   /* mapping helpers ------------------------------------------------- */
   function getPath(obj, path) {
     if (obj == null || !path) return undefined;
@@ -552,9 +581,7 @@ FRAME_HTML = r"""<!doctype html>
       var px = new Image(1, 1);
       px.src = impUrl;
     }
-    strip.addEventListener("click", function () {
-      post({ jsonrpc: "2.0", id: "open-link-" + Date.now(), method: "ui/open-link", params: { url: s.url } });
-    });
+    strip.addEventListener("click", function () { openLink(s.url); });
   }
 
   var RENDERERS = {
@@ -583,7 +610,13 @@ FRAME_HTML = r"""<!doctype html>
     sizeChanged();
   }
 
-  var rendered = false;
+  function renderOnce(sc) {
+    if (window.__lwRendered || !sc) return;
+    window.__lwRendered = true;
+    try { render(sc); } catch (e) { /* leave skeleton */ }
+    sizeChanged();
+  }
+
   window.addEventListener("message", function (ev) {
     /* Gate on source, never origin (spec: sandbox proxies vary origins). */
     if (ev.source && ev.source !== window.parent) return;
@@ -602,9 +635,7 @@ FRAME_HTML = r"""<!doctype html>
       return;
     }
     if (data.method !== "ui/notifications/tool-result") return;
-    if (rendered) return;
-    rendered = true;
-    try { render((data.params || {}).structuredContent); } catch (e) { /* leave skeleton */ }
+    renderOnce((data.params || {}).structuredContent);
   });
 })();
 </script>
@@ -699,28 +730,33 @@ def register_result_widget(
         name=f"result_widget_{tool}",
         mime_type="text/html;profile=mcp-app",
         app=resource_app,
-        # ChatGPT reads its own CSP field (snake_case), not the MCP Apps
-        # one — without it the beacon pixel is sandbox-blocked there even
-        # though the widget itself renders.
-        meta={
-            "openai/widgetCSP": {
-                "connect_domains": ["https://ads.getlulu.dev"],
-                "resource_domains": ["https://ads.getlulu.dev"],
-            }
-        },
     )
     def _result_widget_resource() -> str:
         return html
 
     app_config = AppConfig(resource_uri=uri, visibility=visibility or ["model"])
 
-    # Patch the already-registered tool in place. `tool.meta` is where
-    # FastMCP folds `app=` at registration (verified against fastmcp 3.4.x:
-    # @mcp.tool(app=cfg) -> tool.meta == {"ui": {...}}); mutating it on the
-    # live FunctionTool persists because get_tool returns the same object.
+    # Patch the already-registered tool AND resource in place. `meta` is
+    # where FastMCP folds `app=` at registration; mutating the live objects
+    # persists because get_tool/get_resource return the same instances.
+    # (The @mcp.resource meta= kwarg is silently dropped by some deployed
+    # fastmcp versions — observed live 2026-07-30 — so the in-place patch
+    # is the only reliable path for the ChatGPT keys.)
+    #
+    # ChatGPT (OpenAI Apps) discovers templates via the TOOL's
+    # "openai/outputTemplate" and reads beacon/CSP permission from the
+    # RESOURCE's "openai/widgetCSP" (snake_case) — declaring both alongside
+    # the MCP Apps keys is what makes one widget host-agnostic.
     import asyncio
 
-    ui_meta = {"ui": {"resourceUri": uri, "visibility": visibility or ["model"]}}
+    _openai_csp = {
+        "connect_domains": ["https://ads.getlulu.dev"],
+        "resource_domains": ["https://ads.getlulu.dev"],
+    }
+    ui_meta = {
+        "ui": {"resourceUri": uri, "visibility": visibility or ["model"]},
+        "openai/outputTemplate": uri,
+    }
     try:
         try:
             asyncio.get_running_loop()
@@ -730,6 +766,11 @@ def register_result_widget(
         if not running:
             t = asyncio.run(mcp.get_tool(tool))
             t.meta = {**(t.meta or {}), **ui_meta}
+            try:
+                r = asyncio.run(mcp.get_resource(uri))
+                r.meta = {**(r.meta or {}), "openai/widgetCSP": _openai_csp}
+            except Exception:
+                pass
     except Exception:
         # Tool not registered yet (or a running loop at import time):
         # the returned AppConfig via app= is the fallback path.

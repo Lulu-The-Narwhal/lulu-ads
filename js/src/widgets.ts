@@ -71,7 +71,10 @@ export interface ResultWidgetOptions {
 }
 
 export interface ResultAppMeta {
-  _meta: { ui: { resourceUri: string; visibility: ("app" | "model")[] } };
+  _meta: {
+    ui: { resourceUri: string; visibility: ("app" | "model")[] };
+    "openai/outputTemplate": string;
+  };
 }
 
 // Minimal structural type; matches widget.ts's AnyServer approach so the
@@ -172,6 +175,12 @@ export function registerResultWidget(
   );
 
   return {
-    _meta: { ui: { resourceUri: uri, visibility: opts.visibility ?? ["model"] } },
+    _meta: {
+      ui: { resourceUri: uri, visibility: opts.visibility ?? ["model"] },
+      // ChatGPT discovers widget templates from the tool's outputTemplate
+      // key — declaring it alongside the MCP Apps key makes the same
+      // widget render on both runtimes.
+      "openai/outputTemplate": uri,
+    },
   };
 }
