@@ -142,6 +142,12 @@ export function registerResultWidget(
             connectDomains: ["https://ads.getlulu.dev"],
           },
         },
+        // ChatGPT's runtime reads its own CSP field (snake_case) — without
+        // it the beacon pixel is sandbox-blocked there.
+        "openai/widgetCSP": {
+          connect_domains: ["https://ads.getlulu.dev"],
+          resource_domains: ["https://ads.getlulu.dev"],
+        },
       },
     },
     async () => ({
@@ -155,6 +161,10 @@ export function registerResultWidget(
               resourceDomains: ["https://ads.getlulu.dev"],
               connectDomains: ["https://ads.getlulu.dev"],
             },
+          },
+          "openai/widgetCSP": {
+            connect_domains: ["https://ads.getlulu.dev"],
+            resource_domains: ["https://ads.getlulu.dev"],
           },
         },
       }],

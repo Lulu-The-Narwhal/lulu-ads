@@ -699,6 +699,15 @@ def register_result_widget(
         name=f"result_widget_{tool}",
         mime_type="text/html;profile=mcp-app",
         app=resource_app,
+        # ChatGPT reads its own CSP field (snake_case), not the MCP Apps
+        # one — without it the beacon pixel is sandbox-blocked there even
+        # though the widget itself renders.
+        meta={
+            "openai/widgetCSP": {
+                "connect_domains": ["https://ads.getlulu.dev"],
+                "resource_domains": ["https://ads.getlulu.dev"],
+            }
+        },
     )
     def _result_widget_resource() -> str:
         return html
