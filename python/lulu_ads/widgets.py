@@ -292,21 +292,46 @@ FRAME_HTML = r"""<!doctype html>
   try { CONFIG = JSON.parse(document.getElementById("card").getAttribute("data-lw-config")) || {}; } catch (e) {}
   var MAPPING = CONFIG.mapping || {};
 
-  function post(msg) { window.parent.postMessage(msg, "*"); }
+  function post(msg) { try { window.parent.postMessage(msg, "*"); } catch (e) {} }
+  var nextId = 1, pending = {};
+  function request(method, params, cb) {
+    var id = nextId++;
+    pending[id] = cb || function () {};
+    post({ jsonrpc: "2.0", id: id, method: method, params: params });
+  }
   function sizeChanged() {
     var h = document.body.scrollHeight;
     if (h) post({ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { width: 400, height: h } });
   }
-  var sentInit = false;
-  function init() {
+  /* Dual-protocol handshake. MCP Apps (stable 2026-01-26) hosts require a
+     ui/initialize REQUEST and only deliver tool-result after it completes;
+     draft-era hosts ignore the unknown request entirely. So: send the
+     request; if it's answered we're on the new runtime (apply hostContext,
+     then notify initialized per spec order); if not, a grace timeout falls
+     back to the legacy fire-and-forget initialized. Both paths converge on
+     the same tool-result listener, guarded by `rendered`. */
+  var sentInit = false, newProto = false;
+  function sendInitialized() {
     if (sentInit) return;
     sentInit = true;
     post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
     sizeChanged();
   }
-  if (document.readyState === "complete") init();
-  else window.addEventListener("load", init);
-  setTimeout(init, 300);
+  request("ui/initialize", {
+    appInfo: { name: "lulu-ads-result", version: "1.0.0" },
+    appCapabilities: {},
+    protocolVersion: "2026-01-26"
+  }, function (err, result) {
+    newProto = true;
+    if (result && result.hostContext && result.hostContext.theme) {
+      document.documentElement.setAttribute("data-theme", result.hostContext.theme);
+    }
+    sendInitialized();
+  });
+  function legacyInit() { setTimeout(sendInitialized, 400); }
+  if (document.readyState === "complete") legacyInit();
+  else window.addEventListener("load", legacyInit);
+  setTimeout(sendInitialized, 900);
 
   /* mapping helpers ------------------------------------------------- */
   function getPath(obj, path) {
@@ -560,8 +585,23 @@ FRAME_HTML = r"""<!doctype html>
 
   var rendered = false;
   window.addEventListener("message", function (ev) {
+    /* Gate on source, never origin (spec: sandbox proxies vary origins). */
+    if (ev.source && ev.source !== window.parent) return;
     var data = ev && ev.data;
-    if (!data || data.method !== "ui/notifications/tool-result") return;
+    if (!data) return;
+    if (data.id != null && data.method == null) {
+      /* Response to one of our requests (ui/initialize, ui/open-link). */
+      var cb = pending[data.id];
+      delete pending[data.id];
+      if (cb) cb(data.error || null, data.result);
+      return;
+    }
+    if (data.method === "ui/resource-teardown" && data.id != null) {
+      /* Spec requires an answer or the host logs the view as hung. */
+      post({ jsonrpc: "2.0", id: data.id, result: {} });
+      return;
+    }
+    if (data.method !== "ui/notifications/tool-result") return;
     if (rendered) return;
     rendered = true;
     try { render((data.params || {}).structuredContent); } catch (e) { /* leave skeleton */ }
@@ -634,11 +674,31 @@ def register_result_widget(
     domain = claude_apps_domain(endpoint_url)
     html = result_widget_html(template=template, mapping=mapping, body_html=body_html)
 
+    # MCP Apps hosts apply a default CSP of img-src 'self' data: — the
+    # rendered-impression beacon (a 1px <img> to ads.getlulu.dev) is
+    # blocked unless the resource declares the domain. connect_domains
+    # rides along for a future sendBeacon variant. Older fastmcp versions
+    # without ResourceCSP just skip the declaration (beacon falls back to
+    # blocked-on-web, which the served-count upper bound already covers).
+    resource_app = AppConfig(domain=domain)
+    try:
+        from fastmcp.apps.config import ResourceCSP
+
+        resource_app = AppConfig(
+            domain=domain,
+            csp=ResourceCSP(
+                resource_domains=["https://ads.getlulu.dev"],
+                connect_domains=["https://ads.getlulu.dev"],
+            ),
+        )
+    except (ImportError, TypeError):
+        pass
+
     @mcp.resource(
         uri,
         name=f"result_widget_{tool}",
         mime_type="text/html;profile=mcp-app",
-        app=AppConfig(domain=domain),
+        app=resource_app,
     )
     def _result_widget_resource() -> str:
         return html
