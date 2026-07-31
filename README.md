@@ -173,7 +173,16 @@ result.sponsored = await ads.sponsoredSlot({
 | Runtime owners (chat bots, WhatsApp/Telegram agents) | `model_output + format_suffix(sponsored)` | [→](docs/integrations.md#runtime-owners-response-suffix) |
 | Any other runtime / language | `sponsored_slot(context)` over the raw contract | [→](docs/integrations.md#any-agent-runtime) |
 
-## Result widgets — templates for your OWN tool output (0.8.1)
+## Result widgets — templates for your OWN tool output (0.8.5)
+
+**One widget, every host.** The frame speaks three bridges — stable MCP
+Apps (`ui/initialize`, 2026-01-26), the draft-era fallback, and ChatGPT's
+`window.openai` — and the SDK registers both template keys
+(`_meta.ui.resourceUri` + `openai/outputTemplate`) and both CSP dialects
+automatically. Verified rendering live on claude.ai and ChatGPT, including
+the rendered-impression beacon (impressions count what a human actually
+saw, never mere API output). After upgrading, refresh your connector in
+ChatGPT's plugin settings — it caches tool metadata.
 
 Don't design UI. Pick one of four predefined, host-native-quality result
 widgets and map your tool's `structuredContent` fields into it — the frame,
