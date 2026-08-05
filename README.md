@@ -12,6 +12,7 @@
 [![Backend](https://img.shields.io/badge/backend-live-brightgreen)](https://ads.getlulu.dev/health)
 [![Publisher beta](https://img.shields.io/badge/publisher_beta-open-E07A00)](https://getlulu.dev/publishers)
 [![Rev share](https://img.shields.io/badge/rev_share-70%25-blueviolet)](docs/contract.md)
+[![Lulu MCPs](https://getlulu.dev/api/mcps/badge/lulu-ads)](https://getlulu.dev/mcps/lulu-ads)
 
 [Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
 
