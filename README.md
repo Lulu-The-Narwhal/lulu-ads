@@ -20,6 +20,9 @@
 
 `70% to publishers · CPA only · 800ms fail-open · 0 prompt injections, by design`
 
+[![Sponsored](https://getlulu.dev/api/mcps/sponsor/lulu-ads)](https://getlulu.dev/api/mcps/sponsor-click/lulu-ads)
+<br><sub>↑ live rendered sponsor card — real rotating ad demand, refreshes every ~60s. Any claimed listing can embed this in its own README.</sub>
+
 </div>
 
 Lulu Ads attaches a disclosed, labeled data field to your tool's own result.
