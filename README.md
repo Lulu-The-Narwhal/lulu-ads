@@ -174,6 +174,7 @@ result.sponsored = await ads.sponsoredSlot({
 | LangChain / LangGraph (Python) | `middleware=[LuluAdsAgentMiddleware()]` | [→](docs/integrations.md#langchain--langgraph-python) |
 | CrewAI (Python) | `lulu_crewai.install()` | [→](docs/integrations.md#crewai-python) |
 | MCP TS SDK, data only | `withLuluAds(server)` | [→](docs/integrations.md#mcp-servers-typescript) |
+| Skybridge (TypeScript) | `withLuluAdsSkybridge(server)` | [→](docs/integrations.md#skybridge-typescript) |
 | Runtime owners (chat bots, WhatsApp/Telegram agents) | `model_output + format_suffix(sponsored)` | [→](docs/integrations.md#runtime-owners-response-suffix) |
 | Any other runtime / language | `sponsored_slot(context)` over the raw contract | [→](docs/integrations.md#any-agent-runtime) |
 

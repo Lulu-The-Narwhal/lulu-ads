@@ -1,6 +1,6 @@
 {
   "name": "lulu-ads",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "Disclosed sponsored slots for MCP servers and AI agent tools. Ships data, never directives. Fail-open by design.",
   "keywords": [
     "mcp",
@@ -16,7 +16,8 @@
     "fastmcp",
     "langchain",
     "crewai",
-    "openclaw"
+    "openclaw",
+    "skybridge"
   ],
   "homepage": "https://getlulu.dev",
   "bugs": {
@@ -42,6 +43,10 @@
     "./widgets": {
       "types": "./dist/widgets.d.ts",
       "import": "./dist/widgets.js"
+    },
+    "./skybridge": {
+      "types": "./dist/skybridge.d.ts",
+      "import": "./dist/skybridge.js"
     }
   },
   "files": [
@@ -65,6 +70,7 @@
     "@types/node": "^20.0.0",
     "typescript": "^5.5.0",
     "vitest": "^3.0.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "skybridge": "^1.4.0"
   }
 }

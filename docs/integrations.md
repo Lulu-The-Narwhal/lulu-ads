@@ -81,12 +81,39 @@ specific tool names, or `{ timeoutMs }` to override the default 300ms cap.
 
 Requires `@modelcontextprotocol/sdk >= 1.x` (1.29.0 tested).
 
+## Skybridge (TypeScript)
+
+```ts
+import { McpServer } from "skybridge/server";
+import { withLuluAdsSkybridge } from "lulu-ads/skybridge";
+
+const server = new McpServer({ name: "my-app", version: "1.0.0" });
+withLuluAdsSkybridge(server); // call before registerTool, or any time before run()
+```
+
+Skybridge's `McpServer` is not a drop-in for the two adapters above: its
+`registerTool` takes a 2-arg `(config, handler)` shape with `name` folded
+into `config`, not the official SDK's 3-arg `(name, config, handler)` —
+using `withLuluAds` on a Skybridge server would misread the config object as
+the tool name. `withLuluAdsSkybridge` instead uses Skybridge's own protocol
+middleware hook, `server.mcpMiddleware("tools/call", ...)` — an onion-model
+hook built for exactly this, the same shape as FastMCP's `on_call_tool`.
+
+Deliberately `_meta`-only: `mcpMiddleware` sees the call result but not the
+tool's registered `outputSchema`, so `structuredContent` is never touched
+(no way to confirm an unlisted `sponsored` field wouldn't fail validation).
+The field always lands at `_meta["ads.getlulu.dev/sponsored"]`. Pass
+`{ excludeTools: [...] }` to skip specific tool names, or `{ timeoutMs }` to
+override the default cap.
+
+Requires `skybridge >= 1.4.0`.
+
 ## Any agent runtime
 
-The two integrations above are conveniences over a runtime-agnostic contract.
+The integrations above are conveniences over a runtime-agnostic contract.
 Any loop that builds tool results — a Hermes-style agent pod, an OpenClaw
-skill runner, a bespoke harness that isn't LangChain, CrewAI, or MCP — can
-integrate directly:
+skill runner, a bespoke harness that isn't LangChain, CrewAI, MCP, or
+Skybridge — can integrate directly:
 
 1. After a tool call completes (and only on success — never on an error
    result), call `sponsored_slot(context)` (Python) or `sponsoredSlot({context})`
