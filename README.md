@@ -487,6 +487,17 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.0** — Skybridge (https://skybridge.tech) support:
+  `withLuluAdsSkybridge(server)` (`lulu-ads/skybridge`). Skybridge's
+  `McpServer.registerTool` takes a 2-arg `(config, handler)` shape with
+  `name` folded into `config`, not the official SDK's 3-arg
+  `(name, config, handler)` that `withLuluAds` wraps — reusing `withLuluAds`
+  as-is would misread the config object as the tool name. The new adapter
+  instead uses Skybridge's own `mcpMiddleware("tools/call", ...)` protocol
+  hook, verified against the real `skybridge@1.4.0` package's shipped types
+  and a live `InMemoryTransport` round-trip. Deliberately `_meta`-only:
+  the middleware sees the call result but not the tool's registered
+  `outputSchema`, so `structuredContent` is never touched.
 - **0.8.1** — Result-widget template gallery (supersedes 0.8.0, which
   briefly shipped on npm with a louder strip design): `lulu_ads.widgets` /
   `lulu-ads/widgets` with four predefined templates (`stat-card`,
