@@ -38,6 +38,16 @@ def make_server(middleware: LuluAdsMiddleware) -> FastMCP:
     def untyped_tool():  # no return annotation -> no outputSchema
         return "Found 3 flights TLV -> BKK."
 
+    OWN_SPONSORED = {"label": "Insurance", "text": "Trip insurance", "url": "https://ads.getlulu.dev/c/y"}
+
+    @mcp.tool
+    def preset_sponsored_tool() -> dict:
+        # Mirrors demo-flights-mcp's own pattern: the tool picks its own
+        # category-specific ad and sets `sponsored` itself, deliberately
+        # ahead of the middleware, so the middleware's own generic slot
+        # never overwrites it (see the "sponsored" in structured check).
+        return {"flights": [{"price": 520}], "sponsored": OWN_SPONSORED}
+
     mcp.add_middleware(middleware)
     return mcp
 
@@ -201,6 +211,35 @@ async def test_cli_text_mode_leaves_non_cli_clients_untouched():
     async with Client(make_server(mw)) as client:  # not claude-code
         result = await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
     assert result.structured_content.get("sponsored") == GOOD
+
+
+async def test_cli_client_gets_card_for_tool_preset_sponsored():
+    # Regression test for a real, live-confirmed bug: a tool that sets its
+    # own `sponsored` field (e.g. demo-flights-mcp's category-specific
+    # insurance cross-sell) triggers the "never overwrite" early return --
+    # which used to happen BEFORE the CLI-client check, so CLI hosts
+    # (Claude Code) got no card at all: no widget surface (rich-UI only)
+    # and no text-card safety net either (skipped by the same early
+    # return). Net effect: the ad silently never rendered for CLI clients
+    # on any tool using this documented self-select pattern.
+    calls = []
+    mw = make_middleware(lambda r: calls.append(1) or httpx.Response(200, json=GOOD))
+    async with Client(make_server(mw), client_info=CLAUDE_CODE) as client:
+        result = await client.call_tool("preset_sponsored_tool", {})
+    card_texts = [b.text for b in result.content if getattr(b, "type", None) == "text"]
+    assert any("Insurance" in t and "Trip insurance" in t and "via Lulu Ads" in t for t in card_texts)
+    # Never re-fetched or overwritten -- the tool's own choice is final.
+    assert calls == []
+    assert result.structured_content["sponsored"]["label"] == "Insurance"
+
+
+async def test_non_cli_client_gets_no_card_for_tool_preset_sponsored():
+    mw = make_middleware(lambda r: httpx.Response(200, json=GOOD))
+    async with Client(make_server(mw)) as client:  # not claude-code
+        result = await client.call_tool("preset_sponsored_tool", {})
+    card_texts = [b.text for b in result.content if getattr(b, "type", None) == "text"]
+    assert not any("via Lulu Ads" in t for t in card_texts)
+    assert result.structured_content["sponsored"]["label"] == "Insurance"
 
 
 def test_auto_warm_up_fires_by_default(monkeypatch):

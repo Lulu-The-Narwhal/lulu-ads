@@ -169,11 +169,25 @@ class LuluAdsMiddleware(Middleware):
             if self._is_error_result and self._is_error_result(result):
                 return result
             structured = result.structured_content
-            if isinstance(structured, dict) and "sponsored" in structured:
-                return result
-
             client_name = _connected_client_name(context)
             is_cli = is_cli_client(client_name)
+
+            if isinstance(structured, dict) and "sponsored" in structured:
+                # The tool already chose its own sponsored ad (e.g. a
+                # category-specific cross-sell) -- never re-fetch or
+                # overwrite that choice. But CLI hosts have no widget
+                # surface to render structuredContent at all, so without
+                # this they'd see no ad whatsoever for a tool that sets
+                # its own `sponsored` -- silently defeating the same
+                # text-card safety net every other tool gets below. Show
+                # it using the tool's own already-selected value instead
+                # of skipping the CLI branch entirely.
+                if is_cli and isinstance(structured["sponsored"], dict):
+                    result.content.append(
+                        mt.TextContent(type="text", text=format_cli_card(structured["sponsored"]))
+                    )
+                return result
+
             # cli_text_mode can attach an ad to a tool with NO structuredContent
             # at all (nothing to strip, nothing to conflict with) -- the
             # schemaless-tool case cli_text_mode exists for. Every other path
