@@ -47,6 +47,19 @@ def test_frame_carries_the_non_negotiables():
     assert "letterTile" in html
 
 
+def test_table_card_row_link_capability_is_embedded():
+    html = result_widget_html(
+        template="table-card",
+        mapping={"rows": "flights", "columns": [], "rowLink": "booking_url"},
+    )
+    # the rowLink mapping key must ride through into the embedded config...
+    assert "booking_url" in html
+    # ...and the renderer must wire it to the same host-agnostic opener
+    # the sponsored strip already uses, not a fresh/second link mechanism.
+    assert "rowUrl" in html and "openLink(String(rowUrl))" in html
+    assert "tr.linked" in html
+
+
 def test_mapping_rides_an_escaped_attribute():
     mapping = {"eyebrow": 'x"onmouseover="alert(1)', "value": "temp"}
     html = result_widget_html(template="stat-card", mapping=mapping)

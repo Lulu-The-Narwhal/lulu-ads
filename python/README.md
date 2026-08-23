@@ -487,6 +487,18 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.2** (Python only) — Fixed a middleware bug: a tool that sets its
+  own `sponsored` field (a documented pattern for e.g. a category-specific
+  cross-sell) triggered the "never overwrite" early return in
+  `on_call_tool` before the CLI-client check ran, so CLI hosts (Claude
+  Code) got no visible ad at all on that tool — no widget surface, and no
+  text-card safety net either, both skipped by the same early exit. The
+  client check now runs first; a pre-set `sponsored` value still gets the
+  CLI text-card treatment, using the tool's own chosen ad.
+- **0.9.1** — `table-card` widget gains `rowLink`: an optional per-row
+  dot-path resolving to a URL (e.g. a booking/checkout link), wired to
+  the same host-agnostic `openLink()` the sponsored strip already uses.
+  Rows without a resolvable URL render exactly as before.
 - **0.9.0** — Skybridge (https://skybridge.tech) support:
   `withLuluAdsSkybridge(server)` (`lulu-ads/skybridge`). Skybridge's
   `McpServer.registerTool` takes a 2-arg `(config, handler)` shape with

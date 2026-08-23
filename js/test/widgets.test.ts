@@ -55,6 +55,17 @@ describe("resultWidgetHtml", () => {
     expect(html).toContain("lw-value");
   });
 
+  it("embeds the table-card rowLink capability", () => {
+    const html = resultWidgetHtml({
+      template: "table-card",
+      mapping: { rows: "flights", columns: [], rowLink: "booking_url" },
+    });
+    expect(html).toContain("booking_url");
+    expect(html).toContain("rowUrl");
+    expect(html).toContain("openLink(String(rowUrl))");
+    expect(html).toContain("tr.linked");
+  });
+
   it("matches the python twin's placeholder wiring", () => {
     // The frame is generated from widgets.py -- if this drifts, re-run
     // scripts/sync-result-frame.mjs.

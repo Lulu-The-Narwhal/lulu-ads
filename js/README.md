@@ -12,12 +12,16 @@
 [![Backend](https://img.shields.io/badge/backend-live-brightgreen)](https://ads.getlulu.dev/health)
 [![Publisher beta](https://img.shields.io/badge/publisher_beta-open-E07A00)](https://getlulu.dev/publishers)
 [![Rev share](https://img.shields.io/badge/rev_share-70%25-blueviolet)](docs/contract.md)
+[![Lulu MCPs](https://getlulu.dev/api/mcps/badge/lulu-ads)](https://getlulu.dev/mcps/lulu-ads)
 
 [Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
 `70% to publishers · CPA only · 800ms fail-open · 0 prompt injections, by design`
+
+[![Sponsored](https://getlulu.dev/api/mcps/sponsor/lulu-ads)](https://getlulu.dev/api/mcps/sponsor-click/lulu-ads)
+<br><sub>↑ live rendered sponsor card — real rotating ad demand, refreshes every ~60s. Any claimed listing can embed this in its own README.</sub>
 
 </div>
 
@@ -170,10 +174,20 @@ result.sponsored = await ads.sponsoredSlot({
 | LangChain / LangGraph (Python) | `middleware=[LuluAdsAgentMiddleware()]` | [→](docs/integrations.md#langchain--langgraph-python) |
 | CrewAI (Python) | `lulu_crewai.install()` | [→](docs/integrations.md#crewai-python) |
 | MCP TS SDK, data only | `withLuluAds(server)` | [→](docs/integrations.md#mcp-servers-typescript) |
+| Skybridge (TypeScript) | `withLuluAdsSkybridge(server)` | [→](docs/integrations.md#skybridge-typescript) |
 | Runtime owners (chat bots, WhatsApp/Telegram agents) | `model_output + format_suffix(sponsored)` | [→](docs/integrations.md#runtime-owners-response-suffix) |
 | Any other runtime / language | `sponsored_slot(context)` over the raw contract | [→](docs/integrations.md#any-agent-runtime) |
 
-## Result widgets — templates for your OWN tool output (0.8.1)
+## Result widgets — templates for your OWN tool output (0.8.5)
+
+**One widget, every host.** The frame speaks three bridges — stable MCP
+Apps (`ui/initialize`, 2026-01-26), the draft-era fallback, and ChatGPT's
+`window.openai` — and the SDK registers both template keys
+(`_meta.ui.resourceUri` + `openai/outputTemplate`) and both CSP dialects
+automatically. Verified rendering live on claude.ai and ChatGPT, including
+the rendered-impression beacon (impressions count what a human actually
+saw, never mere API output). After upgrading, refresh your connector in
+ChatGPT's plugin settings — it caches tool metadata.
 
 Don't design UI. Pick one of four predefined, host-native-quality result
 widgets and map your tool's `structuredContent` fields into it — the frame,
@@ -473,6 +487,21 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.1** — `table-card` widget gains `rowLink`: an optional per-row
+  dot-path resolving to a URL (e.g. a booking/checkout link), wired to
+  the same host-agnostic `openLink()` the sponsored strip already uses.
+  Rows without a resolvable URL render exactly as before.
+- **0.9.0** — Skybridge (https://skybridge.tech) support:
+  `withLuluAdsSkybridge(server)` (`lulu-ads/skybridge`). Skybridge's
+  `McpServer.registerTool` takes a 2-arg `(config, handler)` shape with
+  `name` folded into `config`, not the official SDK's 3-arg
+  `(name, config, handler)` that `withLuluAds` wraps — reusing `withLuluAds`
+  as-is would misread the config object as the tool name. The new adapter
+  instead uses Skybridge's own `mcpMiddleware("tools/call", ...)` protocol
+  hook, verified against the real `skybridge@1.4.0` package's shipped types
+  and a live `InMemoryTransport` round-trip. Deliberately `_meta`-only:
+  the middleware sees the call result but not the tool's registered
+  `outputSchema`, so `structuredContent` is never touched.
 - **0.8.1** — Result-widget template gallery (supersedes 0.8.0, which
   briefly shipped on npm with a louder strip design): `lulu_ads.widgets` /
   `lulu-ads/widgets` with four predefined templates (`stat-card`,

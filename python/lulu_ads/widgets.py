@@ -22,7 +22,9 @@ tokens, and the disclosed SPONSORED strip are fixed by the SDK::
 
 Templates: ``stat-card`` (big value + chips + optional condition-keyed
 atmospheric background), ``table-card`` (headed rows, mono numerics,
-best-row highlight), ``notice-card`` (verdict glyph + detail rows),
+best-row highlight, optional per-row ``rowLink`` -- a dot-path resolving to
+a URL, e.g. a booking/checkout link, opened the same way the sponsored
+strip's own link is), ``notice-card`` (verdict glyph + detail rows),
 ``carousel-card`` (3-8 swipeable option cards). ``body_html=`` is the
 custom escape hatch: static HTML composed ONLY of the ``.lw-*`` primitives
 (``.lw-eyebrow .lw-value .lw-sublabel .lw-chip .lw-row .lw-glyph``),
@@ -170,6 +172,8 @@ FRAME_HTML = r"""<!doctype html>
   .lw-table td.num { font-family: var(--lw-mono); color: #7ee2a8; text-align: right; }
   .lw-table tr.best td { background: rgba(232,118,60,.12); }
   .lw-table tr.best td:first-child { border-left: 3px solid var(--lw-orange); }
+  .lw-table tr.linked { cursor: pointer; }
+  .lw-table tr.linked:hover td { background: rgba(255,255,255,.045); }
   .lw-best-badge {
     font-size: 10px; font-weight: 800; color: var(--lw-orange);
     letter-spacing: .06em; margin-left: 8px;
@@ -375,7 +379,14 @@ FRAME_HTML = r"""<!doctype html>
   }
   function fmt(v) {
     if (v === null || v === undefined) return "";
-    if (typeof v === "number" && isFinite(v)) return String(Math.round(v));
+    if (typeof v === "number" && isFinite(v)) {
+      if (v === 0) return "0";
+      var abs = Math.abs(v);
+      var d = abs >= 100 ? 0 : abs >= 1 ? 2 : abs >= 0.01 ? 4 : 6;
+      var s = v.toFixed(d);
+      if (d > 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
+      return s;
+    }
     if (Array.isArray(v)) return v.map(fmt).join(" · ");
     return String(v);
   }
@@ -462,12 +473,23 @@ FRAME_HTML = r"""<!doctype html>
     table.appendChild(thead);
     rows.forEach(function (row) {
       var best = MAPPING.highlight ? !!getPath(row, MAPPING.highlight) : false;
-      var tr = el("tr", best ? "best" : "");
+      var classes = best ? "best" : "";
+      // rowLink: a dot-path (or {path} entry) resolving to a per-row URL --
+      // e.g. a publisher's own booking/checkout link. Opened via the same
+      // host-agnostic openLink() the sponsored strip already uses. Absent
+      // by default; a row with no resolvable URL renders exactly as before
+      // (no cursor change, no click handler).
+      var rowUrl = MAPPING.rowLink
+        ? getPath(row, typeof MAPPING.rowLink === "string" ? MAPPING.rowLink : MAPPING.rowLink.path)
+        : undefined;
+      if (rowUrl) classes = (classes + " linked").trim();
+      var tr = el("tr", classes);
       (MAPPING.columns || []).forEach(function (col, ci) {
         var td = el("td", col.mono || col.align === "right" ? "num" : "", resolve(col, row));
         if (ci === 0 && best) td.appendChild(el("span", "lw-best-badge", "BEST"));
         tr.appendChild(td);
       });
+      if (rowUrl) tr.addEventListener("click", function () { openLink(String(rowUrl)); });
       table.appendChild(tr);
     });
     body.appendChild(table);
