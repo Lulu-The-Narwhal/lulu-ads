@@ -97,6 +97,18 @@ const server = new McpServer({ name: "my-server", version: "1.0.0" });
 withLuluAds(server); // call before registerTool — reads env vars
 ```
 
+**The two snippets above ship the plain `sponsored` data field only.** If
+you also want the rendered MCP Apps widget — the card that renders on
+hosts like claude.ai and ChatGPT, on top of the same data — use
+`enable_lulu_ads(mcp, endpoint_url=...)` (Python) /
+`await enableLuluAds(server, { endpointUrl })` (TypeScript) instead; both
+need your server's exact public MCP connector URL, which is why they're a
+one-line-bigger call than the data-only middleware above. See the
+[Quickstart section of the README](../README.md#quickstart) for the exact
+call, and [Supported hosts](../README.md#supported-hosts) for which hosts
+actually render it today — the widget path only pays off on hosts that
+implement it; the plain field works everywhere regardless.
+
 ## 4. Verify
 
 **Option A — `verify_integration` MCP tool.** From the same MCP session

@@ -77,7 +77,10 @@ its result. The field lands in two places — `structuredContent.sponsored`
 (skipped if the tool declares an `outputSchema`, since an unlisted field would
 fail validation) and the always-safe mirror
 `_meta["ads.getlulu.dev/sponsored"]`. Pass `{ excludeTools: [...] }` to skip
-specific tool names, or `{ timeoutMs }` to override the default 300ms cap.
+specific tool names, or `{ timeoutMs }` to override the default cap (see
+`js/src/index.ts` for the current adaptive default — it's changed more
+than once as production evidence came in, so this doc intentionally
+doesn't repeat a number that can go stale).
 
 Requires `@modelcontextprotocol/sdk >= 1.x` (1.29.0 tested).
 
@@ -127,6 +130,16 @@ Skybridge — can integrate directly:
 
 Same three rules as every other adapter: **data, never a directive; never on
 errors; allowlisted context only.**
+
+This is also why there's no per-host adapter list here beyond the
+frameworks above: the `sponsored` field is plain JSON on a standard MCP
+tool result, so any MCP-speaking host — VS Code, Zed, Windsurf, Cline,
+Goose, Grok, or anything else that calls your tools over the protocol —
+already receives it once your server runs one of the adapters above, with
+zero extra code and no host-specific integration. What differs host to
+host is only whether it *renders* the field as a card (see
+[Supported hosts](../README.md#supported-hosts) in the README for the
+current, honestly-caveated picture) — the data itself is unconditional.
 
 ## OpenClaw / ClawHub skill authors
 
@@ -201,12 +214,21 @@ not attempt to smuggle a suffix into tool output text; that's a directive
 wearing a data field's clothes, and it's exactly what this SDK is built to
 avoid.
 
-## Render kits (roadmap)
+## Render kits: shipped vs. roadmap
 
 The `sponsored` data field is intentionally render-agnostic — text, URL,
 disclosure label, nothing else. Per-host native card affordances on top of
-that same field raise render rates without changing the contract: an MCP Apps
-widget (already proven in Dali's sponsored-card UI), OpenAI Apps SDK
-components, and Gemini extension cards are all on the roadmap. None of them
-ship code in this v0 — the data field above is stable and forward-compatible
-with all of them; a render kit is purely additive when it lands.
+that same field raise render rates without changing the contract.
+
+**Already shipped**, on top of the always-on data field: the MCP Apps
+widget (`register_sponsored_widget`/`registerSponsoredWidget`,
+`enable_lulu_ads`/`enableLuluAds` — see the README's
+[Widget rendering](../README.md#widget-rendering-mcp-apps-ui) section) and
+ChatGPT's `window.openai` bridge, both registered automatically by
+`enable_lulu_ads`/`enableLuluAds`. See the README's
+[Supported hosts](../README.md#supported-hosts) table for exactly which
+hosts render either of these today.
+
+**Still roadmap:** Gemini extension cards. Not shipped in this v0 — the
+data field above is stable and forward-compatible with it; a render kit is
+purely additive whenever it lands.
