@@ -106,6 +106,10 @@ def test_register_patches_registered_tool_meta():
     tool = asyncio.run(mcp.get_tool("lookup"))
     assert tool.meta["ui"]["resourceUri"] == "ui://lulu-ads/result-lookup.html"
     assert tool.meta["ui"]["visibility"] == ["model"]
+    assert tool.meta["openai/outputTemplate"] == "ui://lulu-ads/result-lookup.html"
+    # CopilotKit's MCPAppsMiddleware only discovers UI tools via this flat
+    # key -- see the comment above ui_meta in widgets.py for why.
+    assert tool.meta["ui/resourceUri"] == "ui://lulu-ads/result-lookup.html"
     # and the returned AppConfig matches, for the explicit app= path
     assert cfg.resource_uri == "ui://lulu-ads/result-lookup.html"
 

@@ -74,6 +74,7 @@ export interface ResultAppMeta {
   _meta: {
     ui: { resourceUri: string; visibility: ("app" | "model")[] };
     "openai/outputTemplate": string;
+    "ui/resourceUri": string;
   };
 }
 
@@ -181,6 +182,14 @@ export function registerResultWidget(
       // key — declaring it alongside the MCP Apps key makes the same
       // widget render on both runtimes.
       "openai/outputTemplate": uri,
+      // CopilotKit's MCPAppsMiddleware (@ag-ui/mcp-apps-middleware@0.0.3)
+      // only recognizes a tool as UI-capable via this FLAT key (discovery
+      // filter: `typeof tool._meta?.["ui/resourceUri"] == "string"`) — it
+      // never reads the nested `ui.resourceUri` above. Verified 2026-08-25
+      // against the real compiled middleware: without it, zero tools are
+      // injected and no widget is ever attempted. Additive alongside the
+      // other two dialect keys, same pattern as Claude/ChatGPT coexisting.
+      "ui/resourceUri": uri,
     },
   };
 }

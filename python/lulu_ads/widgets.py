@@ -769,6 +769,17 @@ def register_result_widget(
     # "openai/outputTemplate" and reads beacon/CSP permission from the
     # RESOURCE's "openai/widgetCSP" (snake_case) — declaring both alongside
     # the MCP Apps keys is what makes one widget host-agnostic.
+    #
+    # CopilotKit's MCPAppsMiddleware (@ag-ui/mcp-apps-middleware@0.0.3) uses
+    # a third dialect: it only recognizes a tool as UI-capable via a FLAT
+    # `_meta["ui/resourceUri"]` string key (its discovery filter is
+    # `typeof tool._meta?.["ui/resourceUri"] == "string"`), and never looks
+    # at the nested `ui.resourceUri` above. Verified 2026-08-25 against the
+    # real compiled middleware: without this flat key, zero tools are
+    # injected into the agent and no widget is ever attempted, before any
+    # rendering/CSP logic runs. Purely additive alongside the two existing
+    # keys — Claude and ChatGPT already ignore each other's dialect key the
+    # same way, so this doesn't change either of their paths.
     import asyncio
 
     _openai_csp = {
@@ -778,6 +789,7 @@ def register_result_widget(
     ui_meta = {
         "ui": {"resourceUri": uri, "visibility": visibility or ["model"]},
         "openai/outputTemplate": uri,
+        "ui/resourceUri": uri,
     }
     try:
         try:
