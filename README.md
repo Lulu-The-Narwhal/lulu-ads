@@ -212,6 +212,8 @@ generic "should work" assumption.
 &nbsp;
 <a href="https://code.visualstudio.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/vscode.png" alt="VS Code" height="24"></a>
 &nbsp;
+<a href="https://cursor.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/cursor.svg" alt="Cursor" height="24"></a>
+&nbsp;
 <a href="https://github.com/aaif-goose/goose"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/goose.png" alt="Goose" height="24"></a>
 &nbsp;
 <a href="https://grok.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/xai-grok.png" alt="Grok (xAI)" height="24"></a>
@@ -234,6 +236,7 @@ here only for completeness.)</sub>
 | ChatGPT | Yes | Yes | Live, verified in production. |
 | CopilotKit (`@ag-ui/mcp-apps-middleware`) | Yes | In progress | Fix in review, [PR #8](https://github.com/Lulu-The-Narwhal/lulu-ads/pull/8), unverified end-to-end — a tool-discovery bug was found and fixed, but the fix has not been tested against a full chat UI (no LLM available in that pass) and is not yet released to npm/PyPI. Do not treat CopilotKit as supported until that PR lands and is verified live. The plain `sponsored` field is unaffected by this bug and already flows today. |
 | VS Code (native MCP + GitHub Copilot Chat agent mode) | Yes | Reported live | Microsoft's own 2026-01-26 blog post and current docs describe VS Code as "the first major AI code editor with full MCP Apps support" and document concrete, checkable implementation detail (sandboxed iframes, CSP domain config, the `ui/initialize` handshake, the App SDK) — credible, but this is a vendor claim we have not independently reproduced ourselves. Plain MCP tool-calling (Copilot Chat agent mode) has been GA since v1.102. |
+| Cursor | Yes | Reported, unverified | Named as an MCP Apps implementer on the upstream [modelcontextprotocol.io Extension Support Matrix](https://modelcontextprotocol.io/extensions/client-matrix) — a third-party listing, not Cursor's own docs, so weaker evidence than VS Code/Goose's vendor-published detail above. We actually tried to verify this ourselves live (2026-08-25) and got blocked before reaching the test: Cursor's free-tier Agent usage cap (2 prompts) hit before a real tool call went through. Real attempt, real blocker, still unconfirmed — not a claim we're dodging. |
 | Goose (Block / AAIF) | Yes | Live (experimental) | Goose's own docs confirm the `ui/initialize` handshake and sandboxed-iframe rendering (Goose Desktop 1.19.1+), but explicitly flag it as "experimental and based on a draft specification; the implementation is minimal and may change." Treat as live-but-unstable, not a guaranteed render target. |
 | Grok (xAI) — grok.com connectors, Grok Build CLI, xAI API Remote MCP Tools | Yes | No evidence found | MCP-capable across all three xAI surfaces (plain tool discovery + calling), but no official doc, changelog, or third-party host-support matrix credits Grok with the MCP Apps UI extension as of this survey. The sponsored data field still flows and still renders purely on the model's own judgment via the always-on JSON fallback — the rich widget just has nothing to render into. |
 | Windsurf (Codeium) | Yes | No evidence found | Windsurf's own docs state it supports "an MCP server's tools, resources, and prompts" only; every third-party MCP Apps host-support list we found omits it. Sponsored data field still works via the always-on JSON fallback. |
@@ -241,11 +244,43 @@ here only for completeness.)</sub>
 | Zed editor | Yes | No evidence found | Zed's own docs state plainly it "currently supports MCP's Tools and Prompts features" — no Resources-based UI rendering. Sponsored data field still works via the always-on JSON fallback. |
 | Continue.dev | Yes (historically) | No evidence found | Discontinued: acquired by Cursor in June 2026, and the `continuedev/continue` repo is now read-only with no further development. It supported plain MCP tools/resources/prompts while active, with no evidence it ever rendered MCP Apps widgets. Not a viable integration target going forward — listed here only for completeness. |
 
-**Cursor** is named as an MCP Apps implementer on the upstream
-[modelcontextprotocol.io Extension Support Matrix](https://modelcontextprotocol.io/extensions/client-matrix)
-— we haven't independently verified that ourselves in this pass, so it's
-omitted from the table above rather than asserted as "Live" on a claim we
-didn't check.
+### How host discovery actually works
+
+Every status above traces back to one mechanism: what `_meta` key a host's
+MCP client looks for to decide a tool is UI-capable at all, before it ever
+touches rendering. `register_result_widget`/`registerResultWidget` writes
+**three** dialects onto every widget-capable tool's `_meta`, because three
+different discovery conventions exist in the wild and a host only checks
+its own:
+
+```json
+{
+  "ui": { "resourceUri": "ui://lulu-ads/result-search.html", "visibility": ["model"] },
+  "openai/outputTemplate": "ui://lulu-ads/result-search.html",
+  "ui/resourceUri": "ui://lulu-ads/result-search.html"
+}
+```
+
+- **`ui.resourceUri`** (nested) — the MCP Apps spec-in-flux convention.
+  Claude and VS Code both confirm reading exactly this shape in their own
+  docs, which is why neither needed a single line of extra SDK code. Goose's
+  own docs confirm the same `ui/initialize` handshake and `ui://` resource
+  fetch but don't spell out its discovery key specifically — plausible it's
+  the same convention, not independently confirmed the way VS Code's is.
+- **`openai/outputTemplate`** — ChatGPT's own key, unrelated to the MCP Apps
+  spec entirely.
+- **`ui/resourceUri`** (flat) — what CopilotKit's `@ag-ui/mcp-apps-middleware`
+  checks for specifically. Its absence was the exact bug [PR #8](https://github.com/Lulu-The-Narwhal/lulu-ads/pull/8)
+  fixed (2026-08-25) — the tool was invisible to CopilotKit before that, not
+  because rendering failed, but because discovery never even started.
+
+This is deliberately additive, never a rewrite: a host that doesn't recognize
+one of these three keys just ignores it, the same way ChatGPT already ignores
+Claude's key and vice versa today. If you're building against a host not in
+the table above, this is the first thing to check in its client source —
+`grep` for `resourceUri` or `ui/initialize` the same way this survey did for
+Grok/Windsurf/Cline/Zed, and you'll get a real answer faster than waiting on
+us to add a row.
 
 Anything else not listed above (LangGraph Studio, custom in-house agent
 harnesses, and every host we simply haven't looked at yet): unknown / not
