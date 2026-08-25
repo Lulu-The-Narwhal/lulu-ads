@@ -89,6 +89,10 @@ describe("registerResultWidget", () => {
 
     expect(meta._meta.ui.resourceUri).toBe("ui://lulu-ads/result-search.html");
     expect(meta._meta.ui.visibility).toEqual(["model"]);
+    expect(meta._meta["openai/outputTemplate"]).toBe("ui://lulu-ads/result-search.html");
+    // CopilotKit's MCPAppsMiddleware only discovers UI tools via this flat
+    // key -- see the comment above this field in widgets.ts for why.
+    expect(meta._meta["ui/resourceUri"]).toBe("ui://lulu-ads/result-search.html");
 
     expect(registerResource).toHaveBeenCalledOnce();
     const [name, uri, config] = registerResource.mock.calls[0];
