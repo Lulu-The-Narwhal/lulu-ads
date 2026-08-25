@@ -14,7 +14,7 @@
 [![Rev share](https://img.shields.io/badge/rev_share-70%25-blueviolet)](docs/contract.md)
 [![Lulu MCPs](https://getlulu.dev/api/mcps/badge/lulu-ads)](https://getlulu.dev/mcps/lulu-ads)
 
-[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
+[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Supported hosts](#supported-hosts) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
@@ -188,6 +188,71 @@ automatically. Verified rendering live on claude.ai and ChatGPT, including
 the rendered-impression beacon (impressions count what a human actually
 saw, never mere API output). After upgrading, refresh your connector in
 ChatGPT's plugin settings — it caches tool metadata.
+
+## Supported hosts
+
+The plain `sponsored` JSON field is the always-on baseline: it ships on
+every tool result, on every MCP host, because it's nothing more than an
+extra key on a dict — no host-specific support is required for it to work,
+and the model decides on its own whether to surface it. The **rendered**
+MCP Apps widget above that is additive, and only paints where a host has
+actually implemented the `ui/initialize` handshake. This table says exactly
+which is which per host, based on our own production verification where we
+have it and a fresh survey (2026-08-25) everywhere else — a host only gets
+a "Live" widget status here when we've confirmed it ourselves or the
+vendor has published concrete, checkable implementation detail, never on a
+generic "should work" assumption.
+
+<p>
+<a href="https://claude.ai"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/claude.svg" alt="Claude" height="24"></a>
+&nbsp;
+<a href="https://chatgpt.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/openai.png" alt="ChatGPT" height="24"></a>
+&nbsp;
+<a href="https://www.copilotkit.ai"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/copilotkit.png" alt="CopilotKit" height="24"></a>
+&nbsp;
+<a href="https://code.visualstudio.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/vscode.png" alt="VS Code" height="24"></a>
+&nbsp;
+<a href="https://github.com/aaif-goose/goose"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/goose.png" alt="Goose" height="24"></a>
+&nbsp;
+<a href="https://grok.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/xai-grok.png" alt="Grok (xAI)" height="24"></a>
+&nbsp;
+<a href="https://windsurf.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/windsurf.svg" alt="Windsurf" height="24"></a>
+&nbsp;
+<a href="https://cline.bot"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/cline.svg" alt="Cline" height="24"></a>
+&nbsp;
+<a href="https://zed.dev"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/zedindustries.svg" alt="Zed" height="24"></a>
+</p>
+
+<sub>Hosts we've looked at — logos are not a support claim on their own;
+read the Status column below for what each one actually does. (Continue.dev
+is in the table but not the strip above: it's a discontinued product, kept
+here only for completeness.)</sub>
+
+| Host | MCP tool-calling | Rendered widget | Status |
+|---|---|---|---|
+| Claude (claude.ai) | Yes | Yes | Live, verified in production — real rendered-impression beacons observed on live traffic. |
+| ChatGPT | Yes | Yes | Live, verified in production. |
+| CopilotKit (`@ag-ui/mcp-apps-middleware`) | Yes | In progress | Fix in review, [PR #8](https://github.com/Lulu-The-Narwhal/lulu-ads/pull/8), unverified end-to-end — a tool-discovery bug was found and fixed, but the fix has not been tested against a full chat UI (no LLM available in that pass) and is not yet released to npm/PyPI. Do not treat CopilotKit as supported until that PR lands and is verified live. The plain `sponsored` field is unaffected by this bug and already flows today. |
+| VS Code (native MCP + GitHub Copilot Chat agent mode) | Yes | Reported live | Microsoft's own 2026-01-26 blog post and current docs describe VS Code as "the first major AI code editor with full MCP Apps support" and document concrete, checkable implementation detail (sandboxed iframes, CSP domain config, the `ui/initialize` handshake, the App SDK) — credible, but this is a vendor claim we have not independently reproduced ourselves. Plain MCP tool-calling (Copilot Chat agent mode) has been GA since v1.102. |
+| Goose (Block / AAIF) | Yes | Live (experimental) | Goose's own docs confirm the `ui/initialize` handshake and sandboxed-iframe rendering (Goose Desktop 1.19.1+), but explicitly flag it as "experimental and based on a draft specification; the implementation is minimal and may change." Treat as live-but-unstable, not a guaranteed render target. |
+| Grok (xAI) — grok.com connectors, Grok Build CLI, xAI API Remote MCP Tools | Yes | No evidence found | MCP-capable across all three xAI surfaces (plain tool discovery + calling), but no official doc, changelog, or third-party host-support matrix credits Grok with the MCP Apps UI extension as of this survey. The sponsored data field still flows and still renders purely on the model's own judgment via the always-on JSON fallback — the rich widget just has nothing to render into. |
+| Windsurf (Codeium) | Yes | No evidence found | Windsurf's own docs state it supports "an MCP server's tools, resources, and prompts" only; every third-party MCP Apps host-support list we found omits it. Sponsored data field still works via the always-on JSON fallback. |
+| Cline (VS Code extension) | Yes | No evidence found | Mature MCP client (tools, resources, prompts, a built-in MCP marketplace); no `ui/initialize`, `ui://`, or iframe-rendering code found anywhere in the repo. Sponsored data field still works via the always-on JSON fallback. |
+| Zed editor | Yes | No evidence found | Zed's own docs state plainly it "currently supports MCP's Tools and Prompts features" — no Resources-based UI rendering. Sponsored data field still works via the always-on JSON fallback. |
+| Continue.dev | Yes (historically) | No evidence found | Discontinued: acquired by Cursor in June 2026, and the `continuedev/continue` repo is now read-only with no further development. It supported plain MCP tools/resources/prompts while active, with no evidence it ever rendered MCP Apps widgets. Not a viable integration target going forward — listed here only for completeness. |
+
+**Cursor** is named as an MCP Apps implementer on the upstream
+[modelcontextprotocol.io Extension Support Matrix](https://modelcontextprotocol.io/extensions/client-matrix)
+— we haven't independently verified that ourselves in this pass, so it's
+omitted from the table above rather than asserted as "Live" on a claim we
+didn't check.
+
+Anything else not listed above (LangGraph Studio, custom in-house agent
+harnesses, and every host we simply haven't looked at yet): unknown / not
+yet investigated — the plain `sponsored` field is designed to fail open and
+degrade gracefully on any of them regardless, per the [Guarantees](#guarantees-enforced-in-code-not-just-promised)
+below. If you've verified rendering on a host not in this table, open an
+issue or PR — this list is meant to stay honest, not exhaustive.
 
 Don't design UI. Pick one of four predefined, host-native-quality result
 widgets and map your tool's `structuredContent` fields into it — the frame,
