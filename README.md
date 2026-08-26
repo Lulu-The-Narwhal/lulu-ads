@@ -244,43 +244,19 @@ here only for completeness.)</sub>
 | Zed editor | Yes | No evidence found | Zed's own docs state plainly it "currently supports MCP's Tools and Prompts features" — no Resources-based UI rendering. Sponsored data field still works via the always-on JSON fallback. |
 | Continue.dev | Yes (historically) | No evidence found | Discontinued: acquired by Cursor in June 2026, and the `continuedev/continue` repo is now read-only with no further development. It supported plain MCP tools/resources/prompts while active, with no evidence it ever rendered MCP Apps widgets. Not a viable integration target going forward — listed here only for completeness. |
 
-### How host discovery actually works
+### Why some hosts need zero extra code and others don't
 
-Every status above traces back to one mechanism: what `_meta` key a host's
-MCP client looks for to decide a tool is UI-capable at all, before it ever
-touches rendering. `register_result_widget`/`registerResultWidget` writes
-**three** dialects onto every widget-capable tool's `_meta`, because three
-different discovery conventions exist in the wild and a host only checks
-its own:
-
-```json
-{
-  "ui": { "resourceUri": "ui://lulu-ads/result-search.html", "visibility": ["model"] },
-  "openai/outputTemplate": "ui://lulu-ads/result-search.html",
-  "ui/resourceUri": "ui://lulu-ads/result-search.html"
-}
-```
-
-- **`ui.resourceUri`** (nested) — the MCP Apps spec-in-flux convention.
-  Claude and VS Code both confirm reading exactly this shape in their own
-  docs, which is why neither needed a single line of extra SDK code. Goose's
-  own docs confirm the same `ui/initialize` handshake and `ui://` resource
-  fetch but don't spell out its discovery key specifically — plausible it's
-  the same convention, not independently confirmed the way VS Code's is.
-- **`openai/outputTemplate`** — ChatGPT's own key, unrelated to the MCP Apps
-  spec entirely.
-- **`ui/resourceUri`** (flat) — what CopilotKit's `@ag-ui/mcp-apps-middleware`
-  checks for specifically. Its absence was the exact bug [PR #8](https://github.com/Lulu-The-Narwhal/lulu-ads/pull/8)
-  fixed (2026-08-25) — the tool was invisible to CopilotKit before that, not
-  because rendering failed, but because discovery never even started.
-
-This is deliberately additive, never a rewrite: a host that doesn't recognize
-one of these three keys just ignores it, the same way ChatGPT already ignores
-Claude's key and vice versa today. If you're building against a host not in
-the table above, this is the first thing to check in its client source —
-`grep` for `resourceUri` or `ui/initialize` the same way this survey did for
-Grok/Windsurf/Cline/Zed, and you'll get a real answer faster than waiting on
-us to add a row.
+Different hosts converged on different conventions for how a tool
+advertises "I have a renderable UI" — and where a host's convention differs
+from the one we shipped first, discovery silently fails before rendering
+ever gets a chance to run (that was the CopilotKit gap [PR #8](https://github.com/Lulu-The-Narwhal/lulu-ads/pull/8)
+fixed, 2026-08-25). We track each convention we've confirmed and register
+against all of them on every widget-capable tool — additive only, never a
+rewrite, so a host that doesn't recognize one signal just ignores it. That's
+the practical reason Claude and VS Code render with zero extra code (they
+share a convention) while CopilotKit needed a targeted fix, and it's why
+"no evidence found" in the table below means exactly that — evidence not
+found yet, not evidence of absence.
 
 Anything else not listed above (LangGraph Studio, custom in-house agent
 harnesses, and every host we simply haven't looked at yet): unknown / not
