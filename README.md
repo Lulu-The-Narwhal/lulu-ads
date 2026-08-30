@@ -604,6 +604,19 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.6** — Docs only: new [Supported surfaces](docs/supported-surfaces.md)
+  page sorting every agent surface (chat hosts, agentic SDKs/frameworks,
+  response-suffix runtimes, AI app builders, MCP hosting/registries) by how
+  it actually reaches the SDK — a direct adapter, MCP protocol passthrough
+  (no adapter needed once a server has Lulu Ads wired in), the generic
+  `format_suffix` contract, or genuinely not yet evaluated — same
+  evidentiary bar as the rest of this repo. Also adds a "stdio servers"
+  section clarifying the data-field path needs no `endpoint_url` and works
+  unmodified on stdio-transport servers; only the rendered MCP Apps widget
+  requires one and can't apply to stdio. Also fixes `lulu_ads.__version__`,
+  which had drifted to 0.9.0 while the package published as 0.9.5 — same
+  class of bug as the 0.7.0 entry below, recurred because nothing enforces
+  the two staying in sync; consider that the next real gap to close here.
 - **0.9.2** (Python only) — Fixed a middleware bug: a tool that sets its
   own `sponsored` field (a documented pattern for e.g. a category-specific
   cross-sell) triggered the "never overwrite" early return in
