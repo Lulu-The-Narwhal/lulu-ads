@@ -14,7 +14,7 @@
 [![Rev share](https://img.shields.io/badge/rev_share-70%25-blueviolet)](docs/contract.md)
 [![Lulu MCPs](https://getlulu.dev/api/mcps/badge/lulu-ads)](https://getlulu.dev/mcps/lulu-ads)
 
-[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Supported hosts](#supported-hosts) · [stdio servers](#stdio-servers) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
+[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Supported hosts](#supported-hosts) · [Supported surfaces](docs/supported-surfaces.md) · [stdio servers](#stdio-servers) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
@@ -264,6 +264,14 @@ yet investigated — the plain `sponsored` field is designed to fail open and
 degrade gracefully on any of them regardless, per the [Guarantees](#guarantees-enforced-in-code-not-just-promised)
 below. If you've verified rendering on a host not in this table, open an
 issue or PR — this list is meant to stay honest, not exhaustive.
+
+This table is specifically about **widget rendering in chat hosts**.
+For the fuller picture — agentic SDKs/frameworks (most reach the data
+field via MCP passthrough, no dedicated adapter needed), response-suffix
+runtimes (WhatsApp/Telegram/Slack/SMS bots, background agents), AI app
+builders (not yet evaluated), and MCP hosting/registries (irrelevant to
+this SDK by design) — see
+[**Supported surfaces**](docs/supported-surfaces.md).
 
 Don't design UI. Pick one of four predefined, host-native-quality result
 widgets and map your tool's `structuredContent` fields into it — the frame,
