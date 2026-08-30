@@ -12,6 +12,15 @@ args first, then `LULU_ADS_PUBLISHER_ID` / `LULU_ADS_API_KEY` /
 `LULU_ADS_BASE_URL` env vars. Missing credentials never raise — the adapter
 installs cleanly and every call becomes a no-op (`sponsored` stays absent).
 
+stdio servers: every adapter on this page (`LuluAdsMiddleware`,
+`withLuluAds`, the LangChain/CrewAI hooks) is already the endpoint-free,
+data-only path — none of them need or accept a public `endpoint_url`, so
+they all work unmodified on a stdio-transport server. Only the separate
+`enable_lulu_ads`/`register_sponsored_widget` calls (the rendered MCP Apps
+widget, not covered on this page) require one, and that piece genuinely
+can't apply to stdio — see the main [README's "stdio servers"
+section](../README.md#stdio-servers) for the full explanation.
+
 ## FastMCP (Python)
 
 ```python

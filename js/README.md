@@ -14,7 +14,7 @@
 [![Rev share](https://img.shields.io/badge/rev_share-70%25-blueviolet)](docs/contract.md)
 [![Lulu MCPs](https://getlulu.dev/api/mcps/badge/lulu-ads)](https://getlulu.dev/mcps/lulu-ads)
 
-[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Supported hosts](#supported-hosts) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
+[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Supported hosts](#supported-hosts) · [stdio servers](#stdio-servers) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
@@ -492,6 +492,39 @@ Until the upstream client bug is fixed, treat the CLI card as "renders
 reliably once you opt in and your tool qualifies, on top of a disclosure
 that already works either way" — same verify-in-your-own-host caveat as
 the widget path above.
+
+## stdio servers
+
+Everything above the "Widget rendering" section works unmodified on a
+stdio-transport server -- the SDK is a library your code imports and calls;
+it doesn't know or care how your own server talks to *its* clients. The
+plain `sponsored` data field (`LuluAdsMiddleware` / `mcp.add_middleware()`,
+`withLuluAds(server)`) takes no endpoint argument and makes a plain
+outbound HTTPS call to `ads.getlulu.dev/slot` -- same request whether your
+process is a long-running remote server or a `npx`/`uvx`-launched local
+one. The CLI text-card path (see "CLI rendering" above) is the common
+real-world case here: Claude Code launches most of its MCP servers over
+stdio, and that's exactly the client this SDK already detects and renders
+a disclosed plain-text card for.
+
+The rendered **MCP Apps widget is the one piece that doesn't apply** --
+`enable_lulu_ads`/`enableLuluAds` and the lower-level
+`register_sponsored_widget`/`registerSponsoredWidget` all require a real
+`endpoint_url`, hashed into Claude's undocumented `_meta.ui.domain` value
+for the widget's iframe CSP. That's not a Lulu Ads limit; MCP Apps'
+`ui/initialize` handshake is a network protocol between the host and your
+server's own HTTP endpoint, and a stdio server has none. If your server is
+stdio-only, call `LuluAdsMiddleware`/`mcp.add_middleware()` directly (or
+`withLuluAds(server)` in TypeScript) -- never `enable_lulu_ads` -- and you
+get the data field plus the CLI text-card, with nothing to configure for
+the endpoint you don't have.
+
+Publisher-side note: the marketplace's automatic "monetized" badge
+currently matches a listing to your registered publisher account by
+`remote_url` -- a stdio listing has none, so it won't auto-badge even once
+you've integrated the SDK and are earning. The SDK/earnings path itself is
+unaffected; this is purely a marketplace-listing display gap, being
+tracked separately.
 
 ## Guarantees (enforced in code, not just promised)
 
