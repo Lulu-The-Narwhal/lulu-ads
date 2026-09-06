@@ -225,8 +225,8 @@ def test_register_result_widget_passes_sponsor_template_through():
     assert 'var SPONSOR_TEMPLATE = "flip-card";' in str(html)
 
 
-def test_result_widget_accepts_spin_and_scratch_reveal_sponsor_templates():
-    for name in ("spin", "scratch-reveal"):
+def test_result_widget_accepts_carousel_and_scratch_reveal_sponsor_templates():
+    for name in ("carousel", "scratch-reveal"):
         html = result_widget_html(template="stat-card", mapping={}, sponsor_template=name)
         assert f'var SPONSOR_TEMPLATE = "{name}";' in html
 
@@ -243,6 +243,15 @@ def test_scratch_reveal_canvas_markup_present():
     assert 'id="scratch-canvas"' in html
 
 
-def test_spin_keyframes_present():
+def test_carousel_track_and_dots_markup_present():
     html = result_widget_html(template="stat-card", mapping={})
-    assert "lw-spin-settle" in html
+    assert 'id="carousel-track"' in html
+    assert 'id="carousel-dots"' in html
+
+
+def test_spin_is_not_a_valid_sponsor_template():
+    # spin shipped, turned out visually illegible (a coin-flip scaleX on a
+    # small, often-flat letter-tile logo shrinks to a near-invisible sliver
+    # mid-animation), and was replaced by carousel rather than patched.
+    with pytest.raises(ValueError, match="unknown sponsor_template"):
+        result_widget_html(template="stat-card", mapping={}, sponsor_template="spin")

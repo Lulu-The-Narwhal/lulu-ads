@@ -107,9 +107,20 @@ describe("sponsor_template (LUL-69)", () => {
     expect(html).toContain('id="scratch-canvas"');
   });
 
-  it("spin ships the settle keyframes", () => {
+  it("carousel ships the track and dots markup", () => {
     const html = resultWidgetHtml({ template: "stat-card", mapping: {} });
-    expect(html).toContain("lw-spin-settle");
+    expect(html).toContain('id="carousel-track"');
+    expect(html).toContain('id="carousel-dots"');
+  });
+
+  it("rejects the removed spin sponsor_template", () => {
+    // spin shipped, turned out visually illegible (a coin-flip scaleX on a
+    // small, often-flat letter-tile logo shrinks to a near-invisible
+    // sliver mid-animation), and was replaced by carousel rather than
+    // patched.
+    expect(() =>
+      resultWidgetHtml({ template: "stat-card", mapping: {}, sponsorTemplate: "spin" as never })
+    ).toThrow(/unknown sponsor_template/);
   });
 });
 

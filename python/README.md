@@ -199,7 +199,7 @@ register_result_widget(
     template="table-card",
     mapping={"rows": "flights", "columns": [...]},
     endpoint_url="https://my-server.example.com/mcp",
-    sponsor_template="flip-card",  # or "spin", "scratch-reveal" -- "card" is the default
+    sponsor_template="flip-card",  # or "carousel", "scratch-reveal" -- "card" is the default
 )
 ```
 
@@ -678,6 +678,31 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.12** — Result-widget footer `sponsor_template=` (LUL-69) redesigned
+  from a slim single-line strip into a cover card: a colorful cover band —
+  a real sponsor image when the live payload supplies `cover_image_url`/
+  `coverImageUrl`, an animated gradient otherwise — with the logo tile
+  overlapping the seam into the body, bigger type, and a real pill CTA
+  button. `"flip-card"`'s teaser now carries the same cover identity
+  instead of a bare label. `"spin"` is removed: a coin-flip `scaleX`
+  animation on a small, often-flat letter-tile logo turned out visually
+  illegible in practice (mid-animation it shrinks to a near-invisible
+  sliver against a busy cover background), caught live rather than
+  inferred. It's replaced by `"carousel"` — auto-cycles through three
+  framings of the *same* single sponsored payload (a bigger brand logo,
+  the offer text, then the CTA), never multiple sponsors: this frame only
+  ever gets one sponsored payload per call, so unlike the standalone
+  gallery's carousel template there is no multi-advertiser rotation here
+  (see LUL-49 for that separate, still-blocked, backend question).
+  `"scratch-reveal"` is restyled as a lottery-ticket foil stub — gold
+  metallic gradient, diagonal hatching, a dashed perforation line, a
+  ticket glyph — and its auto-reveal window is 5s now, not 3s, long enough
+  to actually register as an interaction; it remains a strictly
+  deterministic reveal with no "win/lose" state, which is what keeps the
+  ticket styling out of actual gambling-mechanic territory. The "single
+  row, no room for a full-bleed image" reasoning that used to also exclude
+  `"hero"` no longer holds now that the strip itself is cover-height —
+  noted as an open follow-up, not resolved by this release.
 - **0.9.11** — `register_result_widget()`/`registerResultWidget()` gain
   `sponsor_template=`/`sponsorTemplate:` (LUL-69): the SPONSORED strip built
   into a result widget's footer (`stat-card`/`table-card`/`notice-card`/

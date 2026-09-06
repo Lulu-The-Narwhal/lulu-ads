@@ -34,11 +34,13 @@ Non-negotiables baked into the frame (the body cannot remove or restyle
 them):
 
 * the SPONSORED strip, pinned at the bottom, rendered only when the live
-  ``structuredContent.sponsored`` exists -- orange rail left, then logo
-  tile -> ad text -> CTA -> "via Lulu Ads". ``sponsored.logo_url`` renders
-  in the tile with an automatic letter-tile fallback (brand initial,
-  hash-derived background) on absence or load error, so a blocked or dead
-  logo never leaves a hole;
+  ``structuredContent.sponsored`` exists -- a cover card: a colorful cover
+  band (a real image when the payload supplies ``cover_image_url``, an
+  animated gradient otherwise) with "SPONSORED" pinned on it, a logo tile
+  overlapping the seam into the body, then ad text -> CTA -> "via Lulu
+  Ads". ``sponsored.logo_url`` renders in the tile with an automatic
+  letter-tile fallback (brand initial, hash-derived background) on
+  absence or load error, so a blocked or dead logo never leaves a hole;
 * the transparent canvas (``color-scheme: light dark`` -- the 0.7.4 fix;
   without it Chromium paints an opaque white backdrop on dark hosts);
 * the host bridge: ``ui/notifications/initialized`` on load,
@@ -63,20 +65,41 @@ from lulu_ads.widget import _escape_html, claude_apps_domain
 TEMPLATES = ("stat-card", "table-card", "notice-card", "carousel-card")
 
 # The SPONSORED strip's own visual template (LUL-69) -- independent of
-# `template` above, which picks the result-widget's body layout. "card" is
-# the original, always-visible strip. The others port widget.py's
-# React templates into this frame's own vanilla-JS renderer (see
-# renderSponsored()): "flip-card" (compact teaser, flips to reveal the
-# offer on tap), "spin" (decorative spin-settle on the logo, content
-# visible immediately -- never gated, per LUL-54's anti-gambling-mechanic
-# guardrail), "scratch-reveal" (canvas scratch-off layer, auto-reveals
-# after 3s regardless of interaction, per LUL-52's guardrail). "banner"
-# and "hero" are deliberately NOT here -- this strip is already a single
-# horizontal row (banner would be a no-op) and a full-bleed background
-# doesn't fit a slim footer bar (hero stays a standalone-widget-only
-# format for now). Only formats that make sense ported into a footer
-# strip get added here, not the whole gallery automatically.
-SPONSOR_TEMPLATES = ("card", "flip-card", "spin", "scratch-reveal")
+# `template` above, which picks the result-widget's body layout (NOTE:
+# `template="carousel-card"` is a body layout; this "carousel" is a
+# different, unrelated thing -- the footer's own presentation). "card" is
+# the default: a cover card (colorful cover band + overlapping logo tile +
+# text + CTA), always fully visible. The others port widget.py's React
+# templates into this frame's own vanilla-JS renderer (see
+# renderSponsored()): "flip-card" (a teaser with the same cover identity,
+# flips to reveal the offer on tap), "carousel" (auto-cycles between three
+# framings of the SAME single sponsored payload -- a bigger brand logo, the
+# offer text, then the CTA -- never multiple different sponsors: this
+# frame only ever gets one sponsored payload per call, so unlike widget.py's
+# carousel template
+# there is no multi-advertiser rotation here, see LUL-49 for that separate,
+# still-blocked, backend question), "scratch-reveal" (canvas foil layer
+# over the offer text/CTA -- never over the cover band, so "SPONSORED"
+# stays visible regardless of scratch state -- auto-reveals after 5s
+# regardless of interaction, per LUL-52's guardrail: this is a reveal
+# ANIMATION with one guaranteed, deterministic outcome, styled after a
+# lottery scratch ticket but never actually gated or variable -- there is
+# no "losing" state, which is exactly what keeps it out of gambling-
+# mechanic territory despite the visual reference). "banner" is still a
+# no-op here (redundant with "card"); the "single row, no room for a
+# full-bleed image" reasoning that used to also exclude "hero" no longer
+# holds now that the strip itself is cover-height -- worth a follow-up
+# ticket, not resolved by this comment. "spin" shipped and was removed in
+# the same release cycle -- a coin-flip scaleX on a small, often-flat
+# letter-tile logo tile turned out to be visually illegible in practice
+# (mid-animation it shrinks to a near-invisible sliver against a busy
+# cover background), not just a subtle effect; replaced with "carousel"
+# rather than patched, since sliding + dots is an unambiguous, widely
+# recognized pattern where "what is this animation" was the exact failure
+# mode. Only formats actually ported into this frame's own
+# renderSponsored() get added here, not the whole standalone gallery
+# automatically.
+SPONSOR_TEMPLATES = ("card", "flip-card", "carousel", "scratch-reveal")
 
 _TEMPLATE_PLACEHOLDER = "__LW_TEMPLATE__"
 _SPONSOR_TEMPLATE_PLACEHOLDER = "__LW_SPONSOR_TEMPLATE__"
@@ -222,88 +245,100 @@ FRAME_HTML = r"""<!doctype html>
   .lw-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.25); }
   .lw-dot.on { background: var(--lw-orange); }
 
-  /* SPONSORED strip -- fixed by the SDK, verbatim from the approved mock
-     (final): rounded gradient chip (no full-height rail), one-shot sheen,
-     and a column reflow on narrow iframes. One DOM structure for both
-     layouts -- on desktop the row wrappers are display:contents so the
-     leaf elements flatten into the strip's own flex row (ordered), and
-     the <=440px media query restores the wrappers into the stacked
-     chip-bar + logo/text column layout. */
-  .lw-strip {
-    display: none; align-items: center; gap: 10px; padding: 9px 14px;
-    background: rgba(0,0,0,.30);
-    font-size: 12.5px; position: relative; overflow: hidden; cursor: pointer;
-  }
+  /* SPONSORED strip -- a mini "cover card": a colorful cover band (a real
+     sponsor image when the live payload supplies one via
+     `cover_image_url`/`coverImageUrl`, an animated gradient otherwise)
+     with the logo tile overlapping the seam between cover and body.
+     "SPONSORED" is pinned on the cover band itself, never inside the
+     body -- disclosure stays visible at impression time regardless of
+     scratch/flip state (scratch's canvas only ever covers .lw-cover-body,
+     flip-card's front face renders the same cover band). One shared set
+     of `.lw-cover-*` primitives: default "card"/carousel/scratch-reveal
+     render it directly into #strip; flip-card wraps two copies (front
+     teaser, back = the real offer). */
+  .lw-strip { display: none; position: relative; cursor: pointer; }
   .lw-strip.show { display: flex; }
-  .lw-strip::after {
+  .lw-strip.lw-cover-card { flex-direction: column; overflow: visible; }
+  /* flip-card's two faces are position:absolute; inset:0 (for the
+     crossfade), which means each face's OWN offsetHeight just reflects
+     that fixed box, never its content's natural height -- so the actual
+     cover-card layout lives one level deeper, in a normal-flow
+     `.lw-cover-card-inner` child. Measuring THAT child's offsetHeight
+     (see renderSponsored's flip-card branch) gets the real content
+     height regardless of the outer face's forced sizing. */
+  .lw-strip-front {
+    position: absolute; inset: 0; overflow: visible;
+    opacity: 1; transition: opacity .3s;
+  }
+  @media (prefers-reduced-motion: reduce) { .lw-strip-front { transition: none; } }
+  /* width:100% matters specifically for #strip-back: its OWN parent
+     (.lw-strip-flip .lw-strip) is `display:flex` on the default row
+     axis, so without an explicit width this flex item shrinks to its
+     content's fit-content width on that axis instead of filling the
+     card -- the front face doesn't have this problem (.lw-strip-front
+     isn't a flex container), which is why the bug only ever showed up
+     after the first flip. */
+  .lw-cover-card-inner { display: flex; flex-direction: column; overflow: visible; position: relative; width: 100%; }
+
+  .lw-cover {
+    position: relative; height: 66px; overflow: hidden;
+    background: linear-gradient(120deg, #ff8a3d 0%, #d94fd0 48%, #3ec6ff 100%);
+    background-size: 220% 220%;
+    animation: lw-cover-drift 10s ease-in-out infinite alternate;
+  }
+  .lw-cover.has-image { background-size: cover; background-position: center; animation: none; }
+  @keyframes lw-cover-drift { 0% { background-position: 0% 20%; } 100% { background-position: 100% 80%; } }
+  @media (prefers-reduced-motion: reduce) { .lw-cover { animation: none; } }
+  .lw-cover-badge { position: absolute; top: 10px; left: 14px; }
+  .lw-cover-logo {
+    position: absolute; top: 40px; left: 14px; width: 52px; height: 52px;
+    border-radius: 13px; border: 3px solid #241d16; z-index: 1;
+  }
+  .lw-cover-logo img { width: 34px; height: 34px; }
+  .lw-cover-logo.fallback { font-size: 22px; }
+
+  .lw-cover-body { position: relative; padding: 30px 16px 16px; overflow: hidden; background: rgba(0,0,0,.30); }
+  .lw-cover-body::after {
     content: ""; position: absolute; top: 0; bottom: 0; width: 55%; left: -60%;
     background: linear-gradient(105deg, transparent 0%, rgba(255,255,255,.10) 45%,
       rgba(255,214,178,.14) 50%, rgba(255,255,255,.10) 55%, transparent 100%);
     animation: lw-shine 2.4s ease-out .8s 1 forwards; pointer-events: none;
   }
   @keyframes lw-shine { 0% { left: -60%; } 100% { left: 120%; } }
-  @media (prefers-reduced-motion: reduce) { .lw-strip::after { animation: none; display: none; } }
-  .lw-strip .toprow, .lw-strip .bottomrow, .lw-strip .rightcol, .lw-strip .ctarow { display: contents; }
-  .lw-strip .badge {
+  @media (prefers-reduced-motion: reduce) { .lw-cover-body::after { animation: none; display: none; } }
+  .lw-cover-info { display: flex; flex-direction: column; gap: 3px; }
+  .lw-strip .txt, .lw-strip-front .txt { color: var(--lw-ink); font-weight: 600; }
+  .lw-strip .via, .lw-strip-front .via { font-size: 11.5px; color: var(--lw-ink-faint); }
+  .lw-cover-ctarow { margin-top: 12px; }
+  .lw-strip .cta, .lw-strip-front .cta {
+    display: inline-flex; align-items: center;
+    color: #2a1d0f; font-weight: 800; white-space: nowrap;
+    background: #FFC46B; padding: 8px 14px; border-radius: 999px; font-size: 12.5px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.2);
+  }
+  .lw-strip .badge, .lw-strip-front .badge {
     background: linear-gradient(180deg, #F5A053 0%, #E8763C 55%, #D95F27 100%);
-    color: #fff; font-size: 9.5px; font-weight: 800; letter-spacing: .12em;
-    border-radius: 6px; padding: 4px 9px; flex-shrink: 0; order: 0;
+    color: #fff; font-size: 10.5px; font-weight: 800; letter-spacing: .12em;
+    border-radius: 6px; padding: 5px 10px;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
   }
   .lw-logo {
-    width: 26px; height: 26px; border-radius: 7px; background: #fff;
+    width: 40px; height: 40px; border-radius: 10px; background: #fff;
     display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; overflow: hidden; order: 1;
+    flex-shrink: 0; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.25);
   }
-  .lw-logo img { width: 18px; height: 18px; object-fit: contain; }
-  .lw-logo.fallback { color: #fff; font-weight: 800; font-size: 13px; }
-  .lw-strip .txt {
-    flex: 1; color: var(--lw-ink); white-space: nowrap; overflow: hidden;
-    text-overflow: ellipsis; order: 2; min-width: 0;
-  }
-  .lw-strip .cta { color: #FFC46B; font-weight: 700; white-space: nowrap; flex-shrink: 0; order: 3; }
-  .lw-strip .via { font-size: 11px; color: var(--lw-ink-faint); white-space: nowrap; flex-shrink: 0; order: 4; }
-  @media (max-width: 440px) {
-    .lw-strip.show { flex-direction: column; align-items: stretch; gap: 8px; padding: 0 0 10px; }
-    .lw-strip .badge, .lw-logo, .lw-strip .txt, .lw-strip .cta, .lw-strip .via { order: 0; }
-    .lw-strip .toprow {
-      display: flex; align-items: center; justify-content: space-between;
-      background: linear-gradient(180deg, #F5A053 0%, #E8763C 55%, #D95F27 100%);
-      padding: 6px 14px; box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
-    }
-    .lw-strip .toprow .badge { background: none; box-shadow: none; padding: 0; border-radius: 0; }
-    .lw-strip .toprow .via { color: rgba(255,255,255,.85); }
-    .lw-strip .bottomrow { display: flex; gap: 11px; align-items: flex-start; padding: 0 14px; }
-    .lw-strip .rightcol { display: block; flex: 1; min-width: 0; }
-    .lw-strip .txt {
-      white-space: normal; overflow: visible; display: -webkit-box;
-      -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 1.45;
-    }
-    .lw-strip .ctarow { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
-    .lw-value { font-size: 46px; }
-  }
+  .lw-logo img { width: 28px; height: 28px; object-fit: contain; }
+  .lw-logo.fallback { color: #fff; font-weight: 800; font-size: 18px; }
 
-  /* SPONSORED strip: flip-card sponsor_template (LUL-69). Wraps the
-     EXACT SAME strip markup/CSS above as the "back" face -- flip-card
-     changes only what's shown before the first tap, never the strip's
-     own visual design once revealed. Front face is a compact "SPONSORED
-     · via Lulu Ads" teaser; tapping crossfades to the real strip (logo/
-     text/CTA), matching widget.py's FlipCard.tsx in spirit (front always
-     discloses what this is, only the offer's own details sit behind the
-     interaction) -- a crossfade rather than a true 3D rotation, which
-     proved unreliable nested this deeply inside an already-sandboxed
-     MCP Apps iframe; a footer strip doesn't need the full 3D effect the
-     standalone template has to earn the "flip-card" name here. */
-  .lw-strip-flip { display: none; position: relative; cursor: pointer; min-height: 33px; }
+  /* SPONSORED strip: flip-card sponsor_template (LUL-69). Front face is
+     the SAME cover-card primitives as the back (real logo, cover band,
+     "SPONSORED" disclosure), just simpler copy -- "See today's offer" /
+     "Tap to reveal" with a nudging arrow -- so tapping crossfades into
+     the real offer without the visual identity changing underneath it.
+     A crossfade rather than a true 3D rotation, which proved unreliable
+     nested this deeply inside an already-sandboxed MCP Apps iframe. */
+  .lw-strip-flip { display: none; position: relative; cursor: pointer; min-height: 146px; }
   .lw-strip-flip.show { display: block; }
-  /* Both faces are ALWAYS position:absolute + inset:0 -- fully stacked on
-     top of each other from the start, never side-by-side flex siblings --
-     so toggling opacity is a pure crossfade with no layout shift. */
-  .lw-strip-front {
-    display: flex; align-items: center; gap: 10px; padding: 9px 14px;
-    background: rgba(0,0,0,.30); font-size: 12.5px;
-    position: absolute; inset: 0; transition: opacity .3s; opacity: 1;
-  }
   .lw-strip-flip.flipped .lw-strip-front { opacity: 0; pointer-events: none; }
   /* Overrides the base .lw-strip's own `display: none` -- visibility of
      the back face is controlled entirely by the OUTER .lw-strip-flip's
@@ -315,32 +350,61 @@ FRAME_HTML = r"""<!doctype html>
     display: flex; position: absolute; inset: 0; opacity: 0; transition: opacity .3s;
   }
   .lw-strip-flip.flipped .lw-strip { opacity: 1; }
-  @media (prefers-reduced-motion: reduce) {
-    .lw-strip-front, .lw-strip-flip .lw-strip { transition: none; }
-  }
+  @media (prefers-reduced-motion: reduce) { .lw-strip-flip .lw-strip { transition: none; } }
+  .lw-flip-arrow { display: inline-block; margin-left: 3px; animation: lw-flip-nudge 1.6s ease-in-out .8s infinite; }
+  @keyframes lw-flip-nudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+  @media (prefers-reduced-motion: reduce) { .lw-flip-arrow { animation: none; } }
 
-  /* SPONSORED strip: spin sponsor_template (LUL-69/54). Content is
-     visible immediately, exactly like the default "card" strip -- spin
-     is decoration only, never gates the offer (binding guardrail: no
-     multiple possible outcomes, this is motion, not a mechanic). Applied
-     to the SAME #sp-logo element the default strip already uses. */
-  @keyframes lw-spin-settle {
-    0% { transform: rotate(0deg) scale(.85); opacity: .6; }
-    70% { transform: rotate(936deg) scale(1.08); opacity: 1; }
-    100% { transform: rotate(1080deg) scale(1); opacity: 1; }
+  /* SPONSORED strip: carousel sponsor_template (LUL-69, replacing the
+     removed "spin" -- see SPONSOR_TEMPLATES's own comment for why). All
+     three slides are the SAME single sponsored payload, just different
+     framings of it (big logo, offer text, CTA) -- never multiple
+     sponsors. Content is visible immediately regardless of which slide is
+     showing; the click-to-navigate handler on #strip works identically
+     for all three. A few auto-advance cycles, then settles on the CTA
+     slide, echoing spin's own "plays a bit, then rests" ethos -- never an
+     endless loop nagging inside someone else's UI. */
+  .lw-carousel-viewport { overflow: hidden; }
+  .lw-carousel-track { display: flex; transition: transform .5s cubic-bezier(.4,0,.2,1); }
+  .lw-carousel-slide {
+    flex: 0 0 100%; min-width: 0; display: flex; flex-direction: column; justify-content: center;
   }
-  .lw-logo-spin { animation: lw-spin-settle 1.1s cubic-bezier(.2,.8,.2,1) 1; }
-  @media (prefers-reduced-motion: reduce) {
-    .lw-logo-spin { animation: none; }
+  .lw-carousel-slide.lw-slide-cta { align-items: flex-start; }
+  /* Slide 1 is a visual brand moment, not invented copy -- earlier this
+     tried a "headline" made from the same word the logo's letter-tile
+     fallback uses, but that word is just whatever `sponsored.text`
+     happens to start with ("Book direct and..." -> "Book"), which reads
+     as a non-sequitur on its own with no sentence around it. A bigger
+     rendering of the SAME real logo has no such failure mode. */
+  .lw-carousel-slide.lw-slide-brand { flex-direction: row; align-items: center; gap: 12px; }
+  .lw-carousel-logo-big { width: 56px; height: 56px; border-radius: 14px; }
+  .lw-carousel-logo-big img { width: 38px; height: 38px; }
+  .lw-carousel-logo-big.fallback { font-size: 24px; }
+  @media (prefers-reduced-motion: reduce) { .lw-carousel-track { transition: none; } }
+  .lw-carousel-dots { display: flex; gap: 6px; margin-top: 12px; }
+  .lw-carousel-dots .lw-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.28);
+    transition: background .3s;
   }
+  .lw-carousel-dots .lw-dot.on { background: #FFC46B; }
 
-  /* SPONSORED strip: scratch-reveal sponsor_template (LUL-69/52). Same
-     content/layout as the default strip, with a canvas scratch-off layer
-     on top -- .lw-strip already has `position: relative; overflow:
-     hidden` (see its base rule above), so this only needs to fill that
-     existing box. Auto-reveals after 3s regardless of interaction
-     (binding guardrail: the offer underneath never depends on whether or
-     how much the user scratched -- see the JS timer in renderSponsored). */
+  /* SPONSORED strip: scratch-reveal sponsor_template (LUL-69/52) --
+     styled as a real foil lottery-ticket stub (metallic sheen, diagonal
+     hatch, a perforation line, a ticket glyph), but functionally a
+     GUARANTEED reveal, never a chance mechanic: there is exactly one
+     outcome and no "losing" state, which is what keeps the ticket
+     styling from crossing into an actual gambling mechanic. The canvas
+     fills ONLY .lw-cover-body (offer text + CTA) -- never .lw-cover,
+     which holds the logo and the "SPONSORED" disclosure, so disclosure
+     stays visible at impression time no matter how much (or little) is
+     scratched. .lw-cover-body already has `position: relative; overflow:
+     hidden` (see its rule above), so this only needs to fill that
+     existing box. Auto-reveals after 5s regardless of interaction --
+     long enough to actually feel like scratching something (3s proved
+     too short to register as an interaction at all) -- but still
+     unconditional (binding guardrail: the offer underneath never depends
+     on whether or how much the user scratched -- see the JS timer in
+     setupScratchReveal). */
   .lw-scratch-canvas { position: absolute; inset: 0; cursor: pointer; touch-action: none; }
 
   .lw-skel { height: 84px; }
@@ -350,36 +414,76 @@ FRAME_HTML = r"""<!doctype html>
 <body>
   <div class="lw-card" id="card" data-lw-config="__LW_CONFIG__">
     <div id="body-slot"><div class="lw-skel" id="skel"></div></div>
-    <div class="lw-strip" id="strip">
-      <div class="toprow">
-        <span class="badge">SPONSORED</span>
-        <span class="via">via Lulu Ads</span>
+    <div class="lw-strip lw-cover-card" id="strip">
+      <div class="lw-cover" id="sp-cover">
+        <span class="badge lw-cover-badge">SPONSORED</span>
       </div>
-      <div class="bottomrow">
-        <span class="lw-logo" id="sp-logo" style="display:none"></span>
-        <div class="rightcol">
+      <span class="lw-logo lw-cover-logo" id="sp-logo" style="display:none"></span>
+      <div class="lw-cover-body" id="sp-body">
+        <div class="lw-cover-info">
           <span class="txt" id="sp-text"></span>
-          <div class="ctarow"><span class="cta" id="sp-cta">Learn more →</span></div>
+          <span class="via">via Lulu Ads</span>
+        </div>
+        <div class="lw-cover-ctarow"><span class="cta" id="sp-cta">Learn more →</span></div>
+        <canvas class="lw-scratch-canvas" id="scratch-canvas" style="display:none"></canvas>
+      </div>
+    </div>
+    <div class="lw-strip lw-cover-card" id="strip-carousel">
+      <div class="lw-cover" id="sp-cover-carousel">
+        <span class="badge lw-cover-badge">SPONSORED</span>
+      </div>
+      <span class="lw-logo lw-cover-logo" id="sp-logo-carousel" style="display:none"></span>
+      <div class="lw-cover-body">
+        <div class="lw-carousel-viewport">
+          <div class="lw-carousel-track" id="carousel-track">
+            <div class="lw-carousel-slide lw-slide-brand">
+              <span class="lw-logo lw-carousel-logo-big" id="sp-logo-carousel-big" style="display:none"></span>
+              <span class="via">via Lulu Ads</span>
+            </div>
+            <div class="lw-carousel-slide">
+              <div class="lw-cover-info">
+                <span class="txt" id="sp-text-carousel"></span>
+                <span class="via">via Lulu Ads</span>
+              </div>
+            </div>
+            <div class="lw-carousel-slide lw-slide-cta">
+              <span class="cta" id="sp-cta-carousel">Learn more →</span>
+            </div>
+          </div>
+        </div>
+        <div class="lw-carousel-dots" id="carousel-dots">
+          <span class="lw-dot on"></span><span class="lw-dot"></span><span class="lw-dot"></span>
         </div>
       </div>
-      <canvas class="lw-scratch-canvas" id="scratch-canvas" style="display:none"></canvas>
     </div>
     <div class="lw-strip-flip" id="strip-flip">
       <div class="lw-strip-front">
-        <span class="badge">SPONSORED</span>
-        <span class="txt">See today's offer</span>
-        <span class="cta">Tap to reveal →</span>
+        <div class="lw-cover-card-inner" id="front-inner">
+          <div class="lw-cover" id="sp-cover-flip-front">
+            <span class="badge lw-cover-badge">SPONSORED</span>
+          </div>
+          <span class="lw-logo lw-cover-logo" id="sp-logo-flip-front" style="display:none"></span>
+          <div class="lw-cover-body">
+            <div class="lw-cover-info">
+              <span class="txt">See today's offer</span>
+              <span class="via">via Lulu Ads</span>
+            </div>
+            <div class="lw-cover-ctarow"><span class="cta">Tap to reveal <span class="lw-flip-arrow">→</span></span></div>
+          </div>
+        </div>
       </div>
       <div class="lw-strip" id="strip-back">
-        <div class="toprow">
-          <span class="badge">SPONSORED</span>
-          <span class="via">via Lulu Ads</span>
-        </div>
-        <div class="bottomrow">
-          <span class="lw-logo" id="sp-logo-flip" style="display:none"></span>
-          <div class="rightcol">
-            <span class="txt" id="sp-text-flip"></span>
-            <div class="ctarow"><span class="cta" id="sp-cta-flip">Learn more →</span></div>
+        <div class="lw-cover-card-inner" id="back-inner">
+          <div class="lw-cover" id="sp-cover-flip">
+            <span class="badge lw-cover-badge">SPONSORED</span>
+          </div>
+          <span class="lw-logo lw-cover-logo" id="sp-logo-flip" style="display:none"></span>
+          <div class="lw-cover-body">
+            <div class="lw-cover-info">
+              <span class="txt" id="sp-text-flip"></span>
+              <span class="via">via Lulu Ads</span>
+            </div>
+            <div class="lw-cover-ctarow"><span class="cta" id="sp-cta-flip">Learn more →</span></div>
           </div>
         </div>
       </div>
@@ -669,11 +773,10 @@ FRAME_HTML = r"""<!doctype html>
      flip/#sp-text-flip/#sp-cta-flip), so both presentations get the exact
      same logo/letter-tile-fallback behavior from one implementation. */
   function fillLogo(logo, brandWord, s) {
-    // Preserves any class NOT owned by this function (specifically
-    // "lw-logo-spin", added by the spin sponsor_template) across a full
-    // className reassignment -- without this, a real logo's async
-    // img.onload firing mid-animation would silently wipe the spin class
-    // and cut the flourish off abruptly.
+    // Preserves any class NOT owned by this function (e.g. "lw-cover-logo",
+    // which positions the overlap) across a full className reassignment --
+    // without this, a real logo's async img.onload firing would silently
+    // wipe whatever a caller added beforehand.
     var extra = logo.className.split(/\s+/).filter(function (c) {
       return c && c !== "lw-logo" && c !== "fallback";
     }).join(" ");
@@ -697,6 +800,26 @@ FRAME_HTML = r"""<!doctype html>
       img.src = logoUrl;
     } else {
       letterTile();
+    }
+  }
+
+  /* Cover band background: a real sponsor image when the live payload
+     supplies one (forward-compatible with the ads-server adding
+     cover_image_url/coverImageUrl alongside logo_url someday, same
+     snake/camelCase acceptance), the animated gradient otherwise. Unlike
+     `logo`/`accent`/`template` in the standalone widget, this is NOT a
+     registration-time integrator param -- the cover is the sponsor's own
+     creative, so it has to travel with the rest of the live per-call
+     sponsored payload, same as logo_url already does. */
+  function setCoverImage(cover, s) {
+    var url = (typeof s.cover_image_url === "string" && s.cover_image_url) ? s.cover_image_url
+      : (typeof s.coverImageUrl === "string" ? s.coverImageUrl : "");
+    if (url) {
+      cover.style.backgroundImage = "url(" + JSON.stringify(url) + ")";
+      cover.classList.add("has-image");
+    } else {
+      cover.style.backgroundImage = "";
+      cover.classList.remove("has-image");
     }
   }
 
@@ -725,17 +848,24 @@ FRAME_HTML = r"""<!doctype html>
     if (SPONSOR_TEMPLATE === "flip-card") {
       document.getElementById("sp-text-flip").textContent = s.text;
       fillLogo(document.getElementById("sp-logo-flip"), brandWord, s);
+      fillLogo(document.getElementById("sp-logo-flip-front"), brandWord, s);
+      setCoverImage(document.getElementById("sp-cover-flip"), s);
+      setCoverImage(document.getElementById("sp-cover-flip-front"), s);
       var flip = document.getElementById("strip-flip");
-      var front = flip.querySelector(".lw-strip-front");
-      var back = document.getElementById("strip-back");
+      var frontInner = document.getElementById("front-inner");
+      var backInner = document.getElementById("back-inner");
       flip.classList.add("show");
-      // Both faces are position:absolute (pure crossfade, no layout
-      // shift), so the container has no intrinsic height of its own --
-      // set it explicitly to whichever face is currently showing.
-      // back.scrollHeight is measurable even at opacity:0 (layout still
+      // Both faces (.lw-strip-front / #strip-back) are position:absolute;
+      // inset:0 (pure crossfade, no layout shift) -- which means each
+      // face's OWN offsetHeight just reflects that fixed box, never its
+      // content's natural height. Their actual cover-card layout lives
+      // one level deeper in a normal-flow .lw-cover-card-inner child
+      // (#front-inner / #back-inner); THAT child's offsetHeight is what
+      // reflects true content height, measurable even while its
+      // absolutely-positioned parent is at opacity:0 (layout still
       // happens, only painting is suppressed), so this works before the
       // very first flip too, not just after.
-      flip.style.height = front.offsetHeight + "px";
+      flip.style.height = frontInner.offsetHeight + "px";
       fireImpressionBeacon(flip, s);
       // First click flips to reveal the real offer (back face); once
       // flipped, the back face IS the offer -- a further click opens it,
@@ -746,67 +876,135 @@ FRAME_HTML = r"""<!doctype html>
           openLink(s.url);
         } else {
           flip.classList.add("flipped");
-          flip.style.height = back.scrollHeight + "px";
+          flip.style.height = backInner.offsetHeight + "px";
           sizeChanged();
         }
       });
       return;
     }
 
-    // "card" (default), "spin", and "scratch-reveal" all share the exact
-    // same populated strip -- content visible immediately, never gated --
-    // spin/scratch-reveal only add decoration/interaction on TOP of it.
+    if (SPONSOR_TEMPLATE === "carousel") {
+      document.getElementById("sp-text-carousel").textContent = s.text;
+      fillLogo(document.getElementById("sp-logo-carousel"), brandWord, s);
+      fillLogo(document.getElementById("sp-logo-carousel-big"), brandWord, s);
+      setCoverImage(document.getElementById("sp-cover-carousel"), s);
+      var carStrip = document.getElementById("strip-carousel");
+      carStrip.classList.add("show");
+      fireImpressionBeacon(carStrip, s);
+      // All three slides are the SAME offer -- clicking navigates
+      // identically regardless of which slide is currently showing.
+      carStrip.addEventListener("click", function () { openLink(s.url); });
+      startCarousel();
+      return;
+    }
+
+    // "card" and "scratch-reveal" share the exact same populated strip --
+    // content visible immediately, never gated -- scratch-reveal only
+    // adds a canvas layer on TOP of it.
     document.getElementById("sp-text").textContent = s.text;
     var logo = document.getElementById("sp-logo");
-    // Added BEFORE fillLogo (not after): fillLogo reads logo.className
-    // once, synchronously, to preserve non-logo classes across its own
-    // later reassignment (including from an async img.onload) -- adding
-    // this after the call would be invisible to that snapshot and get
-    // wiped the moment a real logo image finishes loading.
-    if (SPONSOR_TEMPLATE === "spin") {
-      // Force the animation to (re)play exactly once per real render --
-      // removing the class first (+ a reflow) matters if this is a second
-      // renderOnce on an already-spun logo; classList.add alone would be
-      // a no-op and never restart a CSS animation on a class that's
-      // already present. Added BEFORE fillLogo, not after (see fillLogo's
-      // own comment on why an async img.onload needs this to already be
-      // there to preserve it across its own className reassignment). No
-      // animationend hook -- decorative, plays once, then stays settled;
-      // it must never gate or vary the offer (LUL-54's guardrail).
-      logo.classList.remove("lw-logo-spin");
-      void logo.offsetWidth;
-      logo.classList.add("lw-logo-spin");
-    }
     fillLogo(logo, brandWord, s);
+    setCoverImage(document.getElementById("sp-cover"), s);
     var strip = document.getElementById("strip");
     strip.classList.add("show");
     fireImpressionBeacon(strip, s);
     strip.addEventListener("click", function () { openLink(s.url); });
 
     if (SPONSOR_TEMPLATE === "scratch-reveal") {
-      setupScratchReveal(strip);
+      setupScratchReveal(document.getElementById("sp-body"));
     }
   }
 
-  var SCRATCH_AUTO_REVEAL_MS = 3000;
+  var CAROUSEL_SLIDE_MS = 2200;
+  var CAROUSEL_SLIDE_COUNT = 3; // big logo, offer text, CTA
+  var CAROUSEL_STEPS = 7; // brand -> offer -> CTA -> brand -> offer -> CTA -> (settle)
+
+  // Auto-advances #carousel-track through its three slides (brand
+  // headline, offer text, CTA) for a couple of full passes, then stops on
+  // the CTA slide -- reaching for the actionable slide, not looping
+  // forever inside someone else's UI. All three slides are the same
+  // offer/link (see the click handler in renderSponsored), so there is
+  // nothing to gate: this reorders framing, never content.
+  function startCarousel() {
+    var track = document.getElementById("carousel-track");
+    var dots = document.querySelectorAll("#carousel-dots .lw-dot");
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return; // stays on slide 0
+    function show(slide) {
+      track.style.transform = "translateX(-" + slide * 100 + "%)";
+      dots.forEach(function (d, di) { d.classList.toggle("on", di === slide); });
+    }
+    var i = 0;
+    var timer = setInterval(function () {
+      i++;
+      if (i >= CAROUSEL_STEPS) {
+        clearInterval(timer);
+        show(2); // always finish pointed at the CTA slide (index 2)
+        return;
+      }
+      show(i % CAROUSEL_SLIDE_COUNT);
+    }, CAROUSEL_SLIDE_MS);
+  }
+
+  var SCRATCH_AUTO_REVEAL_MS = 5000;
   var SCRATCH_CLEAR_THRESHOLD = 0.55;
 
-  function setupScratchReveal(strip) {
+  // `zone` is .lw-cover-body ONLY -- never the whole strip, which also
+  // contains .lw-cover (logo + "SPONSORED" disclosure). The canvas must
+  // never cover disclosure.
+  function setupScratchReveal(zone) {
     var canvas = document.getElementById("scratch-canvas");
     var ctx = canvas.getContext && canvas.getContext("2d");
     if (!ctx) return; // no canvas support -- offer is already fully visible above, fail open
-    var rect = strip.getBoundingClientRect();
-    canvas.width = rect.width || strip.offsetWidth;
-    canvas.height = rect.height || strip.offsetHeight;
+    var rect = zone.getBoundingClientRect();
+    canvas.width = rect.width || zone.offsetWidth;
+    canvas.height = rect.height || zone.offsetHeight;
     canvas.style.display = "block";
 
+    // Lottery-ticket foil look: gold metallic gradient, diagonal hatch
+    // texture, a dashed perforation (like a real ticket stub edge), a
+    // ticket glyph, and bold copy -- reads as a physical scratch ticket
+    // at a glance. Still just decoration over a guaranteed reveal: no
+    // "you win/you lose" copy anywhere, since there is only one outcome.
     ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = "rgba(35,32,28,0.96)";
+    var grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    grad.addColorStop(0, "#f3d98a");
+    grad.addColorStop(.5, "#d9ad4e");
+    grad.addColorStop(1, "#b8863a");
+    ctx.fillStyle = grad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
-    ctx.font = "600 11px -apple-system, BlinkMacSystemFont, sans-serif";
+
+    ctx.strokeStyle = "rgba(255,255,255,.28)";
+    ctx.lineWidth = 3;
+    for (var x = -canvas.height; x < canvas.width; x += 9) {
+      ctx.beginPath();
+      ctx.moveTo(x, canvas.height);
+      ctx.lineTo(x + canvas.height, 0);
+      ctx.stroke();
+    }
+
+    // A stub perforation near the left edge, like tearing a ticket stub.
+    var stubX = Math.min(46, canvas.width * 0.16);
+    ctx.strokeStyle = "rgba(80,58,20,.5)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 5]);
+    ctx.beginPath();
+    ctx.moveTo(stubX, 4);
+    ctx.lineTo(stubX, canvas.height - 4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "rgba(60,42,14,.7)";
+    ctx.font = "20px -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("Scratch to reveal", canvas.width / 2, canvas.height / 2 + 4);
+    ctx.fillText("\u{1F3AB}", stubX / 2, canvas.height / 2 + 7);
+
+    var textX = stubX + (canvas.width - stubX) / 2;
+    ctx.fillStyle = "rgba(50,35,10,.9)";
+    ctx.font = "800 12.5px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillText("SCRATCH TO REVEAL", textX, canvas.height / 2 - 2);
+    ctx.fillStyle = "rgba(50,35,10,.65)";
+    ctx.font = "600 10.5px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillText("your offer is ready", textX, canvas.height / 2 + 15);
 
     var scratching = false, cleared = 0, revealed = false;
     var totalPixels = canvas.width * canvas.height;
@@ -819,9 +1017,9 @@ FRAME_HTML = r"""<!doctype html>
     function scratchAt(x, y) {
       ctx.globalCompositeOperation = "destination-out";
       ctx.beginPath();
-      ctx.arc(x, y, 16, 0, Math.PI * 2);
+      ctx.arc(x, y, 22, 0, Math.PI * 2);
       ctx.fill();
-      cleared += Math.PI * 16 * 16;
+      cleared += Math.PI * 22 * 22;
       if (cleared / totalPixels > SCRATCH_CLEAR_THRESHOLD) reveal();
     }
     function posFromEvent(e) {
