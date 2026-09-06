@@ -604,6 +604,42 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.8** — `register_sponsored_widget()` / `registerSponsoredWidget()` gain
+  a `template=` parameter (LUL-46), same shape as `register_result_widget`'s:
+  keyword-only, defaults to `"card"` (today's only format, fully backward
+  compatible — no existing integrator's call site changes behavior), raises
+  immediately on an unrecognized value (before any network call, e.g. the
+  logo fetch). This is a registration-time integrator choice, not a
+  per-call value — matches the static, "baked into the compiled bundle at
+  registration" behavior `register_result_widget`'s own template already
+  has, not something that varies per served ad. Foundational only: the
+  registry/dispatch mechanism in `js/widget-src/` now supports looking up a
+  template by name, but `"card"` (the existing hand-built layout) is still
+  the only entry — more templates land in their own follow-up releases as
+  they're built (banner, hero, carousel, comparison, flip-card,
+  scratch-reveal, spin, testimonial, countdown, quiz, video). Also fixes a
+  real, pre-existing drift: the TS SDK's own `SDK_VERSION` telemetry
+  constant had been stuck at `0.9.0` since a much earlier release despite
+  `package.json` moving on to `0.9.6` — realigned here, and the two
+  packages' version numbers themselves are now back in sync (the previous
+  `0.9.7` was Python-only; the TS package skips straight to `0.9.8`).
+- **0.9.7** (Python only) — CLI/text clients now get a **delivery-confirmed**
+  beacon: the normal rendered-impression pixel (`imp_url`) is fetched by a
+  rendering client itself the instant it displays the sponsored strip —
+  terminal/CLI hosts (Claude Code and friends) have no rendering engine to
+  do that, so every CLI-delivered card was previously invisible in
+  `ad_events`, full stop, even on 100%-successful deliveries. The
+  middleware now fires that same beacon URL itself (fire-and-forget,
+  non-blocking, tagged `src=cli_server`) the moment it appends a card to a
+  CLI client's `content[]`, on both is_cli card-append paths (the
+  middleware's own fetched slot, and a tool's pre-set `sponsored`). This
+  logs as a new, distinct `cli_card_delivered` event — **not**
+  `impression_rendered`, and never counted toward CPM billing/payout — a
+  deliberately weaker signal than a real rendered-pixel hit: it proves the
+  card left the server in the tool response, never that a human actually
+  saw it. Needs no config; existing `imp_url`-carrying slots pick this up
+  automatically. (ads-server: `/i/{token}` now accepts an optional
+  `src=cli_server` query param to log the distinct event type.)
 - **0.9.6** — Docs only: new [Supported surfaces](docs/supported-surfaces.md)
   page sorting every agent surface (chat hosts, agentic SDKs/frameworks,
   response-suffix runtimes, AI app builders, MCP hosting/registries) by how

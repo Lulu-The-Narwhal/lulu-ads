@@ -14,7 +14,7 @@
 [![Rev share](https://img.shields.io/badge/rev_share-70%25-blueviolet)](docs/contract.md)
 [![Lulu MCPs](https://getlulu.dev/api/mcps/badge/lulu-ads)](https://getlulu.dev/mcps/lulu-ads)
 
-[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [stdio servers](#stdio-servers) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
+[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Supported hosts](#supported-hosts) · [Supported surfaces](docs/supported-surfaces.md) · [stdio servers](#stdio-servers) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
@@ -188,6 +188,90 @@ automatically. Verified rendering live on claude.ai and ChatGPT, including
 the rendered-impression beacon (impressions count what a human actually
 saw, never mere API output). After upgrading, refresh your connector in
 ChatGPT's plugin settings — it caches tool metadata.
+
+## Supported hosts
+
+The plain `sponsored` JSON field is the always-on baseline: it ships on
+every tool result, on every MCP host, because it's nothing more than an
+extra key on a dict — no host-specific support is required for it to work,
+and the model decides on its own whether to surface it. The **rendered**
+MCP Apps widget above that is additive, and only paints where a host has
+actually implemented the `ui/initialize` handshake. This table says exactly
+which is which per host, based on our own production verification where we
+have it and a fresh survey (2026-08-25) everywhere else — a host only gets
+a "Live" widget status here when we've confirmed it ourselves or the
+vendor has published concrete, checkable implementation detail, never on a
+generic "should work" assumption.
+
+<p>
+<a href="https://claude.ai"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/claude.svg" alt="Claude" height="24"></a>
+&nbsp;
+<a href="https://chatgpt.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/openai.png" alt="ChatGPT" height="24"></a>
+&nbsp;
+<a href="https://www.copilotkit.ai"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/copilotkit.png" alt="CopilotKit" height="24"></a>
+&nbsp;
+<a href="https://code.visualstudio.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/vscode.png" alt="VS Code" height="24"></a>
+&nbsp;
+<a href="https://cursor.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/cursor.svg" alt="Cursor" height="24"></a>
+&nbsp;
+<a href="https://github.com/aaif-goose/goose"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/goose.png" alt="Goose" height="24"></a>
+&nbsp;
+<a href="https://grok.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/xai-grok.png" alt="Grok (xAI)" height="24"></a>
+&nbsp;
+<a href="https://windsurf.com"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/windsurf.svg" alt="Windsurf" height="24"></a>
+&nbsp;
+<a href="https://cline.bot"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/cline.svg" alt="Cline" height="24"></a>
+&nbsp;
+<a href="https://zed.dev"><img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/hosts/zedindustries.svg" alt="Zed" height="24"></a>
+</p>
+
+<sub>Hosts we've looked at — logos are not a support claim on their own;
+read the Status column below for what each one actually does. (Continue.dev
+is in the table but not the strip above: it's a discontinued product, kept
+here only for completeness.)</sub>
+
+| Host | MCP tool-calling | Rendered widget | Status |
+|---|---|---|---|
+| Claude (claude.ai) | Yes | Yes | Live, verified in production — real rendered-impression beacons observed on live traffic. |
+| ChatGPT | Yes | Yes | Live, verified in production. |
+| CopilotKit (`@ag-ui/mcp-apps-middleware`) | Yes | In progress | Fix in review, [PR #8](https://github.com/Lulu-The-Narwhal/lulu-ads/pull/8), unverified end-to-end — a tool-discovery bug was found and fixed, but the fix has not been tested against a full chat UI (no LLM available in that pass) and is not yet released to npm/PyPI. Do not treat CopilotKit as supported until that PR lands and is verified live. The plain `sponsored` field is unaffected by this bug and already flows today. |
+| VS Code (native MCP + GitHub Copilot Chat agent mode) | Yes | Reported live | Microsoft's own 2026-01-26 blog post and current docs describe VS Code as "the first major AI code editor with full MCP Apps support" and document concrete, checkable implementation detail (sandboxed iframes, CSP domain config, the `ui/initialize` handshake, the App SDK) — credible, but this is a vendor claim we have not independently reproduced ourselves. Plain MCP tool-calling (Copilot Chat agent mode) has been GA since v1.102. |
+| Cursor | Yes | Reported, unverified | Named as an MCP Apps implementer on the upstream [modelcontextprotocol.io Extension Support Matrix](https://modelcontextprotocol.io/extensions/client-matrix) — a third-party listing, not Cursor's own docs, so weaker evidence than VS Code/Goose's vendor-published detail above. We actually tried to verify this ourselves live (2026-08-25) and got blocked before reaching the test: Cursor's free-tier Agent usage cap (2 prompts) hit before a real tool call went through. Real attempt, real blocker, still unconfirmed — not a claim we're dodging. |
+| Goose (Block / AAIF) | Yes | Live (experimental) | Goose's own docs confirm the `ui/initialize` handshake and sandboxed-iframe rendering (Goose Desktop 1.19.1+), but explicitly flag it as "experimental and based on a draft specification; the implementation is minimal and may change." Treat as live-but-unstable, not a guaranteed render target. |
+| Grok (xAI) — grok.com connectors, Grok Build CLI, xAI API Remote MCP Tools | Yes | No evidence found | MCP-capable across all three xAI surfaces (plain tool discovery + calling), but no official doc, changelog, or third-party host-support matrix credits Grok with the MCP Apps UI extension as of this survey. The sponsored data field still flows and still renders purely on the model's own judgment via the always-on JSON fallback — the rich widget just has nothing to render into. |
+| Windsurf (Codeium) | Yes | No evidence found | Windsurf's own docs state it supports "an MCP server's tools, resources, and prompts" only; every third-party MCP Apps host-support list we found omits it. Sponsored data field still works via the always-on JSON fallback. |
+| Cline (VS Code extension) | Yes | No evidence found | Mature MCP client (tools, resources, prompts, a built-in MCP marketplace); no `ui/initialize`, `ui://`, or iframe-rendering code found anywhere in the repo. Sponsored data field still works via the always-on JSON fallback. |
+| Zed editor | Yes | No evidence found | Zed's own docs state plainly it "currently supports MCP's Tools and Prompts features" — no Resources-based UI rendering. Sponsored data field still works via the always-on JSON fallback. |
+| Continue.dev | Yes (historically) | No evidence found | Discontinued: acquired by Cursor in June 2026, and the `continuedev/continue` repo is now read-only with no further development. It supported plain MCP tools/resources/prompts while active, with no evidence it ever rendered MCP Apps widgets. Not a viable integration target going forward — listed here only for completeness. |
+
+### Why some hosts need zero extra code and others don't
+
+Different hosts converged on different conventions for how a tool
+advertises "I have a renderable UI" — and where a host's convention differs
+from the one we shipped first, discovery silently fails before rendering
+ever gets a chance to run (that was the CopilotKit gap [PR #8](https://github.com/Lulu-The-Narwhal/lulu-ads/pull/8)
+fixed, 2026-08-25). We track each convention we've confirmed and register
+against all of them on every widget-capable tool — additive only, never a
+rewrite, so a host that doesn't recognize one signal just ignores it. That's
+the practical reason Claude and VS Code render with zero extra code (they
+share a convention) while CopilotKit needed a targeted fix, and it's why
+"no evidence found" in the table below means exactly that — evidence not
+found yet, not evidence of absence.
+
+Anything else not listed above (LangGraph Studio, custom in-house agent
+harnesses, and every host we simply haven't looked at yet): unknown / not
+yet investigated — the plain `sponsored` field is designed to fail open and
+degrade gracefully on any of them regardless, per the [Guarantees](#guarantees-enforced-in-code-not-just-promised)
+below. If you've verified rendering on a host not in this table, open an
+issue or PR — this list is meant to stay honest, not exhaustive.
+
+This table is specifically about **widget rendering in chat hosts**.
+For the fuller picture — agentic SDKs/frameworks (most reach the data
+field via MCP passthrough, no dedicated adapter needed), response-suffix
+runtimes (WhatsApp/Telegram/Slack/SMS bots, background agents), AI app
+builders (not yet evaluated), and MCP hosting/registries (irrelevant to
+this SDK by design) — see
+[**Supported surfaces**](docs/supported-surfaces.md).
 
 Don't design UI. Pick one of four predefined, host-native-quality result
 widgets and map your tool's `structuredContent` fields into it — the frame,
@@ -420,18 +504,18 @@ the widget path above.
 ## stdio servers
 
 Everything above the "Widget rendering" section works unmodified on a
-stdio-transport server -- the SDK is a library your code imports and calls;
+stdio-transport server — the SDK is a library your code imports and calls;
 it doesn't know or care how your own server talks to *its* clients. The
 plain `sponsored` data field (`LuluAdsMiddleware` / `mcp.add_middleware()`,
 `withLuluAds(server)`) takes no endpoint argument and makes a plain
-outbound HTTPS call to `ads.getlulu.dev/slot` -- same request whether your
+outbound HTTPS call to `ads.getlulu.dev/slot` — same request whether your
 process is a long-running remote server or a `npx`/`uvx`-launched local
 one. The CLI text-card path (see "CLI rendering" above) is the common
 real-world case here: Claude Code launches most of its MCP servers over
 stdio, and that's exactly the client this SDK already detects and renders
 a disclosed plain-text card for.
 
-The rendered **MCP Apps widget is the one piece that doesn't apply** --
+The rendered **MCP Apps widget is the one piece that doesn't apply** —
 `enable_lulu_ads`/`enableLuluAds` and the lower-level
 `register_sponsored_widget`/`registerSponsoredWidget` all require a real
 `endpoint_url`, hashed into Claude's undocumented `_meta.ui.domain` value
@@ -439,13 +523,13 @@ for the widget's iframe CSP. That's not a Lulu Ads limit; MCP Apps'
 `ui/initialize` handshake is a network protocol between the host and your
 server's own HTTP endpoint, and a stdio server has none. If your server is
 stdio-only, call `LuluAdsMiddleware`/`mcp.add_middleware()` directly (or
-`withLuluAds(server)` in TypeScript) -- never `enable_lulu_ads` -- and you
+`withLuluAds(server)` in TypeScript) — never `enable_lulu_ads` — and you
 get the data field plus the CLI text-card, with nothing to configure for
 the endpoint you don't have.
 
 Publisher-side note: the marketplace's automatic "monetized" badge
 currently matches a listing to your registered publisher account by
-`remote_url` -- a stdio listing has none, so it won't auto-badge even once
+`remote_url` — a stdio listing has none, so it won't auto-badge even once
 you've integrated the SDK and are earning. The SDK/earnings path itself is
 unaffected; this is purely a marketplace-listing display gap, being
 tracked separately.
@@ -556,6 +640,19 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
   saw it. Needs no config; existing `imp_url`-carrying slots pick this up
   automatically. (ads-server: `/i/{token}` now accepts an optional
   `src=cli_server` query param to log the distinct event type.)
+- **0.9.6** — Docs only: new [Supported surfaces](docs/supported-surfaces.md)
+  page sorting every agent surface (chat hosts, agentic SDKs/frameworks,
+  response-suffix runtimes, AI app builders, MCP hosting/registries) by how
+  it actually reaches the SDK — a direct adapter, MCP protocol passthrough
+  (no adapter needed once a server has Lulu Ads wired in), the generic
+  `format_suffix` contract, or genuinely not yet evaluated — same
+  evidentiary bar as the rest of this repo. Also adds a "stdio servers"
+  section clarifying the data-field path needs no `endpoint_url` and works
+  unmodified on stdio-transport servers; only the rendered MCP Apps widget
+  requires one and can't apply to stdio. Also fixes `lulu_ads.__version__`,
+  which had drifted to 0.9.0 while the package published as 0.9.5 — same
+  class of bug as the 0.7.0 entry below, recurred because nothing enforces
+  the two staying in sync; consider that the next real gap to close here.
 - **0.9.2** (Python only) — Fixed a middleware bug: a tool that sets its
   own `sponsored` field (a documented pattern for e.g. a category-specific
   cross-sell) triggered the "never overwrite" early return in

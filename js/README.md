@@ -14,7 +14,7 @@
 [![Rev share](https://img.shields.io/badge/rev_share-70%25-blueviolet)](docs/contract.md)
 [![Lulu MCPs](https://getlulu.dev/api/mcps/badge/lulu-ads)](https://getlulu.dev/mcps/lulu-ads)
 
-[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Supported hosts](#supported-hosts) · [stdio servers](#stdio-servers) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
+[Quickstart](#quickstart) · [Integrations](#framework-integrations) · [Supported hosts](#supported-hosts) · [Supported surfaces](docs/supported-surfaces.md) · [stdio servers](#stdio-servers) · [Guarantees](#guarantees-enforced-in-code-not-just-promised) · [API contract](docs/contract.md) · [Hosted docs](https://getlulu.dev/docs) · [Blog](https://getlulu.dev/blog) · [Become a publisher](https://getlulu.dev/publishers)
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
@@ -265,6 +265,14 @@ degrade gracefully on any of them regardless, per the [Guarantees](#guarantees-e
 below. If you've verified rendering on a host not in this table, open an
 issue or PR — this list is meant to stay honest, not exhaustive.
 
+This table is specifically about **widget rendering in chat hosts**.
+For the fuller picture — agentic SDKs/frameworks (most reach the data
+field via MCP passthrough, no dedicated adapter needed), response-suffix
+runtimes (WhatsApp/Telegram/Slack/SMS bots, background agents), AI app
+builders (not yet evaluated), and MCP hosting/registries (irrelevant to
+this SDK by design) — see
+[**Supported surfaces**](docs/supported-surfaces.md).
+
 Don't design UI. Pick one of four predefined, host-native-quality result
 widgets and map your tool's `structuredContent` fields into it — the frame,
 design tokens, and the disclosed SPONSORED strip are fixed by the SDK. The
@@ -496,18 +504,18 @@ the widget path above.
 ## stdio servers
 
 Everything above the "Widget rendering" section works unmodified on a
-stdio-transport server -- the SDK is a library your code imports and calls;
+stdio-transport server — the SDK is a library your code imports and calls;
 it doesn't know or care how your own server talks to *its* clients. The
 plain `sponsored` data field (`LuluAdsMiddleware` / `mcp.add_middleware()`,
 `withLuluAds(server)`) takes no endpoint argument and makes a plain
-outbound HTTPS call to `ads.getlulu.dev/slot` -- same request whether your
+outbound HTTPS call to `ads.getlulu.dev/slot` — same request whether your
 process is a long-running remote server or a `npx`/`uvx`-launched local
 one. The CLI text-card path (see "CLI rendering" above) is the common
 real-world case here: Claude Code launches most of its MCP servers over
 stdio, and that's exactly the client this SDK already detects and renders
 a disclosed plain-text card for.
 
-The rendered **MCP Apps widget is the one piece that doesn't apply** --
+The rendered **MCP Apps widget is the one piece that doesn't apply** —
 `enable_lulu_ads`/`enableLuluAds` and the lower-level
 `register_sponsored_widget`/`registerSponsoredWidget` all require a real
 `endpoint_url`, hashed into Claude's undocumented `_meta.ui.domain` value
@@ -515,13 +523,13 @@ for the widget's iframe CSP. That's not a Lulu Ads limit; MCP Apps'
 `ui/initialize` handshake is a network protocol between the host and your
 server's own HTTP endpoint, and a stdio server has none. If your server is
 stdio-only, call `LuluAdsMiddleware`/`mcp.add_middleware()` directly (or
-`withLuluAds(server)` in TypeScript) -- never `enable_lulu_ads` -- and you
+`withLuluAds(server)` in TypeScript) — never `enable_lulu_ads` — and you
 get the data field plus the CLI text-card, with nothing to configure for
 the endpoint you don't have.
 
 Publisher-side note: the marketplace's automatic "monetized" badge
 currently matches a listing to your registered publisher account by
-`remote_url` -- a stdio listing has none, so it won't auto-badge even once
+`remote_url` — a stdio listing has none, so it won't auto-badge even once
 you've integrated the SDK and are earning. The SDK/earnings path itself is
 unaffected; this is purely a marketplace-listing display gap, being
 tracked separately.
@@ -596,6 +604,55 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.8** — `register_sponsored_widget()` / `registerSponsoredWidget()` gain
+  a `template=` parameter (LUL-46), same shape as `register_result_widget`'s:
+  keyword-only, defaults to `"card"` (today's only format, fully backward
+  compatible — no existing integrator's call site changes behavior), raises
+  immediately on an unrecognized value (before any network call, e.g. the
+  logo fetch). This is a registration-time integrator choice, not a
+  per-call value — matches the static, "baked into the compiled bundle at
+  registration" behavior `register_result_widget`'s own template already
+  has, not something that varies per served ad. Foundational only: the
+  registry/dispatch mechanism in `js/widget-src/` now supports looking up a
+  template by name, but `"card"` (the existing hand-built layout) is still
+  the only entry — more templates land in their own follow-up releases as
+  they're built (banner, hero, carousel, comparison, flip-card,
+  scratch-reveal, spin, testimonial, countdown, quiz, video). Also fixes a
+  real, pre-existing drift: the TS SDK's own `SDK_VERSION` telemetry
+  constant had been stuck at `0.9.0` since a much earlier release despite
+  `package.json` moving on to `0.9.6` — realigned here, and the two
+  packages' version numbers themselves are now back in sync (the previous
+  `0.9.7` was Python-only; the TS package skips straight to `0.9.8`).
+- **0.9.7** (Python only) — CLI/text clients now get a **delivery-confirmed**
+  beacon: the normal rendered-impression pixel (`imp_url`) is fetched by a
+  rendering client itself the instant it displays the sponsored strip —
+  terminal/CLI hosts (Claude Code and friends) have no rendering engine to
+  do that, so every CLI-delivered card was previously invisible in
+  `ad_events`, full stop, even on 100%-successful deliveries. The
+  middleware now fires that same beacon URL itself (fire-and-forget,
+  non-blocking, tagged `src=cli_server`) the moment it appends a card to a
+  CLI client's `content[]`, on both is_cli card-append paths (the
+  middleware's own fetched slot, and a tool's pre-set `sponsored`). This
+  logs as a new, distinct `cli_card_delivered` event — **not**
+  `impression_rendered`, and never counted toward CPM billing/payout — a
+  deliberately weaker signal than a real rendered-pixel hit: it proves the
+  card left the server in the tool response, never that a human actually
+  saw it. Needs no config; existing `imp_url`-carrying slots pick this up
+  automatically. (ads-server: `/i/{token}` now accepts an optional
+  `src=cli_server` query param to log the distinct event type.)
+- **0.9.6** — Docs only: new [Supported surfaces](docs/supported-surfaces.md)
+  page sorting every agent surface (chat hosts, agentic SDKs/frameworks,
+  response-suffix runtimes, AI app builders, MCP hosting/registries) by how
+  it actually reaches the SDK — a direct adapter, MCP protocol passthrough
+  (no adapter needed once a server has Lulu Ads wired in), the generic
+  `format_suffix` contract, or genuinely not yet evaluated — same
+  evidentiary bar as the rest of this repo. Also adds a "stdio servers"
+  section clarifying the data-field path needs no `endpoint_url` and works
+  unmodified on stdio-transport servers; only the rendered MCP Apps widget
+  requires one and can't apply to stdio. Also fixes `lulu_ads.__version__`,
+  which had drifted to 0.9.0 while the package published as 0.9.5 — same
+  class of bug as the 0.7.0 entry below, recurred because nothing enforces
+  the two staying in sync; consider that the next real gap to close here.
 - **0.9.2** (Python only) — Fixed a middleware bug: a tool that sets its
   own `sponsored` field (a documented pattern for e.g. a category-specific
   cross-sell) triggered the "never overwrite" early return in
