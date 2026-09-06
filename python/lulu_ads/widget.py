@@ -102,28 +102,35 @@ _DEFAULT_RESOURCE_URI = "ui://lulu-ads/sponsored.html"
 # js/widget-src/'s App.tsx TEMPLATES registry (see LUL-45/LUL-47..57 in
 # Linear) -- adding a name here without shipping/syncing that bundle
 # change would validate a template client code can't actually render.
-TEMPLATES = ("card", "banner")
+TEMPLATES = ("card", "banner", "flip-card", "scratch-reveal", "spin", "hero")
 
 # Keeps the inlined data: URI (and the resource payload every client
 # downloads) small -- this renders at 28x28 in the card, never a full-size
 # asset. Raise only if you know your host's resource-size limits.
 _MAX_LOGO_BYTES = 200_000
+# Hero's full-bleed background can't stay at logo-sized limits and still
+# look decent -- larger budget, still capped so a giant asset can't bloat
+# every resource payload every client downloads (see LOGO's own comment).
+_MAX_BG_IMAGE_BYTES = 500_000
 _LOGO_FETCH_TIMEOUT_S = 3.0
 _ALLOWED_LOGO_CONTENT_TYPES = {
     "image/png", "image/jpeg", "image/jpg", "image/svg+xml", "image/webp", "image/gif",
 }
 
 # Test seam: set to an httpx.MockTransport in tests instead of hitting the
-# network. None (the default) means fetch_logo_data_uri uses a real
+# network. None (the default) means fetch_*_data_uri uses a real
 # httpx.Client with no transport override.
 _transport = None
 
 
-def fetch_logo_data_uri(logo_url: str) -> str | None:
-    """Downloads `logo_url` and returns it as a `data:` URI, or None on any
-    failure (bad status, wrong/missing content-type, oversized, network
-    error, timeout) -- a broken logo must never break the widget or the
-    server registering it, so this never raises.
+def _fetch_image_data_uri(url: str, *, max_bytes: int, kind: str) -> str | None:
+    """Shared fetch-and-inline logic behind `fetch_logo_data_uri` and
+    `fetch_background_image_data_uri` -- downloads `url` and returns it as
+    a `data:` URI, or None on any failure (bad status, wrong/missing
+    content-type, oversized, network error, timeout). `kind` is only used
+    in log messages, to tell a skipped logo from a skipped background
+    image. A broken image must never break the widget or the server
+    registering it, so this never raises.
     """
     import httpx
 
@@ -135,23 +142,41 @@ def fetch_logo_data_uri(logo_url: str) -> str | None:
         if _transport is not None:
             client_kwargs["transport"] = _transport
         with httpx.Client(**client_kwargs) as client:
-            resp = client.get(logo_url)
+            resp = client.get(url)
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
         if content_type not in _ALLOWED_LOGO_CONTENT_TYPES:
-            _log.warning("lulu_ads: skipping logo %s -- unsupported content-type %r", logo_url, content_type)
+            _log.warning("lulu_ads: skipping %s %s -- unsupported content-type %r", kind, url, content_type)
             return None
-        if len(resp.content) > _MAX_LOGO_BYTES:
+        if len(resp.content) > max_bytes:
             _log.warning(
-                "lulu_ads: skipping logo %s -- %d bytes exceeds %d byte cap",
-                logo_url, len(resp.content), _MAX_LOGO_BYTES,
+                "lulu_ads: skipping %s %s -- %d bytes exceeds %d byte cap",
+                kind, url, len(resp.content), max_bytes,
             )
             return None
         b64 = base64.b64encode(resp.content).decode("ascii")
         return f"data:{content_type};base64,{b64}"
     except Exception as exc:
-        _log.warning("lulu_ads: skipping logo %s -- fetch failed: %s", logo_url, exc)
+        _log.warning("lulu_ads: skipping %s %s -- fetch failed: %s", kind, url, exc)
         return None
+
+
+def fetch_logo_data_uri(logo_url: str) -> str | None:
+    """Downloads `logo_url` and returns it as a `data:` URI, or None on any
+    failure -- see `_fetch_image_data_uri`'s doc. A broken logo must never
+    break the widget or the server registering it, so this never raises.
+    """
+    return _fetch_image_data_uri(logo_url, max_bytes=_MAX_LOGO_BYTES, kind="logo")
+
+
+def fetch_background_image_data_uri(image_url: str) -> str | None:
+    """Downloads `image_url` and returns it as a `data:` URI, or None on
+    any failure -- see `_fetch_image_data_uri`'s doc. Same CSP-driven
+    reason `logo` is fetched-and-inlined rather than linked directly (see
+    module docstring): the widget iframe's `img-src` only allows `'self'
+    data: <resourceDomains>`.
+    """
+    return _fetch_image_data_uri(image_url, max_bytes=_MAX_BG_IMAGE_BYTES, kind="background image")
 
 # Lulu brand tokens (ads-web/app/globals.css: --lulu-amber / -light / -dark)
 _ACCENT = "#E07A00"
@@ -179,6 +204,7 @@ def sponsored_widget_html(
     accent_light: str = _ACCENT_LIGHT,
     accent_dark: str = _ACCENT_DARK,
     template: str = "card",
+    background_image_data_uri: str | None = None,
 ) -> str:
     """Renders the Lulu Ads sponsored-card widget: a floating, rounded,
     gradient card with a disclosed label, live-swappable per tool call. The
@@ -198,6 +224,11 @@ def sponsored_widget_html(
     `logo_data_uri` must already be a `data:` URI (see `fetch_logo_data_uri`
     / `register_sponsored_widget`'s `logo` param) -- a raw `https://` URL
     here would be silently dropped by the widget sandbox's CSP.
+    `background_image_data_uri` is the same contract for the `"hero"`
+    template's full-bleed background (see `fetch_background_image_data_uri`
+    / `register_sponsored_widget`'s `background_image` param) -- absent on
+    every other template, and on `"hero"` itself when no image was
+    supplied (falls back to the shared accent-token gradient).
 
     `template` selects which compiled React component renders the card's
     inner content (see `TEMPLATES`) -- a registration-time integrator
@@ -221,6 +252,11 @@ def sponsored_widget_html(
     # all when logoDataUri is absent" contract.
     if logo_data_uri is not None:
         resolved_opts["logoDataUri"] = logo_data_uri
+    # Same omit-when-absent contract as logoDataUri -- "hero" degrades to
+    # the shared accent-token gradient (same as every other template) when
+    # no background image was supplied, never a broken/empty image element.
+    if background_image_data_uri is not None:
+        resolved_opts["backgroundImageDataUri"] = background_image_data_uri
     resolved_opts["accent"] = accent
     resolved_opts["accentLight"] = accent_light
     resolved_opts["accentDark"] = accent_dark
@@ -257,6 +293,7 @@ def register_sponsored_widget(
     accent_dark: str = _ACCENT_DARK,
     visibility: list | None = None,
     template: str = "card",
+    background_image: str | None = None,
 ):
     """Registers a rendered MCP Apps UI sponsored-card resource on a
     FastMCP server instance and returns the AppConfig to attach to
@@ -277,6 +314,13 @@ def register_sponsored_widget(
     `sponsored_widget_html`'s doc. Raises `ValueError` immediately (before
     any network call) on an unrecognized value.
 
+    `background_image`, if given, is a URL for the `"hero"` template's
+    full-bleed background -- same fetch-once-and-inline contract as `logo`
+    (a fetch failure just means the shared accent-token gradient shows
+    instead, never a registration error). Accepted regardless of
+    `template` (so switching templates later doesn't require re-plumbing
+    this call), but only `"hero"` actually renders it.
+
     Requires fastmcp to be installed (not a hard dependency of this
     package — only of this module, same pattern as middleware.py).
     """
@@ -287,10 +331,11 @@ def register_sponsored_widget(
 
     domain = claude_apps_domain(endpoint_url)
     logo_data_uri = fetch_logo_data_uri(logo) if logo else None
+    background_image_data_uri = fetch_background_image_data_uri(background_image) if background_image else None
     widget_html = sponsored_widget_html(
         text=text, url=url, label=label, cta=cta, logo_data_uri=logo_data_uri,
         accent=accent, accent_light=accent_light, accent_dark=accent_dark,
-        template=template,
+        template=template, background_image_data_uri=background_image_data_uri,
     )
 
     @mcp.resource(

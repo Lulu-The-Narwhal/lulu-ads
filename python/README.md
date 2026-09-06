@@ -391,19 +391,37 @@ An unrecognized `template` raises immediately (before any network call,
 e.g. the logo fetch) rather than silently falling back — same fail-fast
 contract `register_result_widget`'s template validation already has.
 
+`"hero"` accepts one more option, `background_image`/`backgroundImage` — a
+URL fetched once at registration time and inlined the same way `logo` is:
+
+```python
+sponsored_app = register_sponsored_widget(
+    mcp,
+    endpoint_url="https://my-server.example.com/mcp",
+    text="Save 15% at checkout",
+    url="https://example.com/deal",
+    template="hero",
+    background_image="https://example.com/hero-bg.jpg",  # optional -- falls back to the gradient
+)
+```
+
 **Templates:**
 
 | `template=` | Layout | Notes |
 |---|---|---|
 | `"card"` (default) | Stacked: label line, then logo + text/CTA row | The original hand-built layout — every existing integrator gets this unchanged. |
 | `"banner"` | Single horizontal row: label, logo, text/CTA all inline | Better fit for wide-but-short layouts (VS Code sidebar, wide CLI panes) where a stacked card wastes vertical space. |
+| `"hero"` | Full-bleed background image (or the shared gradient) with logo/text/CTA anchored over a legibility scrim | `background_image` is optional and integrator-supplied — not yet something ads-server's automatic ad matching can select on its own. |
+| `"flip-card"` | Tap/click flips a 3D card — front shows the label, back reveals text + CTA | The disclosed label is always on the front; only the offer's own details are behind the flip. |
+| `"scratch-reveal"` | A scratch-off canvas layer over the offer | Auto-reveals after 3s regardless of interaction — the offer is identical either way, this is decoration, never gated content. |
+| `"spin"` | A decorative spin-and-settle flourish on the logo badge | Deterministic — always the one real offer, never a variable-outcome mechanic. |
 
-More formats land here as they ship (hero, carousel, comparison, flip-card,
-scratch-reveal, spin, testimonial, countdown, quiz, video — see the gallery
-tracked in Linear). Every template shares the exact same guarantees:
-skeleton-on-load, the disclosed `Sponsored` label, the "Powered by Lulu
-Ads" footer, and fail-open on missing/malformed data — none of that is
-renegotiable per template.
+More formats land here as they ship (carousel, comparison, testimonial,
+countdown, quiz, video — see the gallery tracked in Linear). Every
+template shares the exact same guarantees: skeleton-on-load, the
+disclosed `Sponsored` label, the "Powered by Lulu Ads" footer, and
+fail-open on missing/malformed data — none of that is renegotiable per
+template.
 
 This is also what `enable_lulu_ads`/`enableLuluAds` do internally, on your
 behalf, for every tool — found live (2026-07-26) that getting this step
@@ -646,6 +664,25 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.10** — Four more templates: `"flip-card"` (LUL-53, a CSS 3D flip on
+  tap revealing the offer on the back face — front always shows the
+  disclosed label first, never hides *what* this is, only the offer
+  details), `"scratch-reveal"` (LUL-52, a canvas scratch-off layer,
+  auto-reveals after 3s regardless of interaction — the underlying offer
+  is identical whether or not anyone scratches, this is a reveal
+  animation, never gated content), `"spin"` (LUL-54, a decorative
+  spin-and-settle flourish on the logo badge — deterministic by design, no
+  wheel-of-fortune-style variable outcomes, since that would be a gambling
+  mechanic), and `"hero"` (LUL-48, a full-bleed background image or
+  gradient with logo/text/CTA anchored over a legibility scrim).
+  `register_sponsored_widget()`/`registerSponsoredWidget()` also gain an
+  optional `background_image`/`backgroundImage` param for `"hero"` — same
+  fetch-once-and-inline-as-`data:`-URI contract `logo` already has (a
+  fetch failure just falls back to the shared gradient, never a
+  registration error). This is integrator-supplied, registration-time
+  branding, same category as `logo`/`accent*` — not yet wired into
+  ads-server's automatic per-campaign ad matching, which doesn't have an
+  image field of its own (tracked separately).
 - **0.9.9** — First real entry in the template gallery: `template="banner"`
   (LUL-47), a full-width horizontal strip (label, logo, text/CTA all in one
   row) instead of the default `"card"`'s stacked layout — better fit for

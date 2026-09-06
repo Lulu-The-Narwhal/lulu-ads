@@ -6,6 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   claudeAppsDomain,
   fetchLogoDataUri,
+  fetchBackgroundImageDataUri,
   sponsoredWidgetHtml,
   registerSponsoredWidget,
 } from "../src/widget.js";
@@ -225,8 +226,8 @@ test("sponsoredWidgetHtml defaults to the card template", () => {
 
 test("sponsoredWidgetHtml rejects an unknown template", () => {
   expect(() =>
-    sponsoredWidgetHtml({ text: "deal", url: "https://example.com", template: "hero" as any })
-  ).toThrow(/unknown template "hero".*card/);
+    sponsoredWidgetHtml({ text: "deal", url: "https://example.com", template: "carousel" as any })
+  ).toThrow(/unknown template "carousel".*card/);
 });
 
 test("registerSponsoredWidget rejects an unknown template before any network call", async () => {
@@ -261,4 +262,67 @@ test("registerSponsoredWidget carries template through to the resource", async (
 test("sponsoredWidgetHtml accepts the banner template", () => {
   const html = sponsoredWidgetHtml({ text: "deal", url: "https://example.com", template: "banner" });
   expect(extractInjectedOpts(html).template).toBe("banner");
+});
+
+// ── flip-card / scratch-reveal / spin / hero (LUL-53/52/54/48) ──────────
+
+test("sponsoredWidgetHtml accepts flip-card, scratch-reveal, spin, and hero", () => {
+  for (const name of ["flip-card", "scratch-reveal", "spin", "hero"] as const) {
+    const html = sponsoredWidgetHtml({ text: "deal", url: "https://example.com", template: name });
+    expect(extractInjectedOpts(html).template).toBe(name);
+  }
+});
+
+test("sponsoredWidgetHtml omits backgroundImageDataUri when absent", () => {
+  const html = sponsoredWidgetHtml({ text: "deal", url: "https://example.com", template: "hero" });
+  expect(extractInjectedOpts(html).backgroundImageDataUri).toBeUndefined();
+});
+
+test("sponsoredWidgetHtml carries backgroundImageDataUri through when given", () => {
+  const html = sponsoredWidgetHtml({
+    text: "deal",
+    url: "https://example.com",
+    template: "hero",
+    backgroundImageDataUri: "data:image/png;base64,aGVsbG8=",
+  });
+  expect(extractInjectedOpts(html).backgroundImageDataUri).toBe("data:image/png;base64,aGVsbG8=");
+});
+
+test("fetchBackgroundImageDataUri inlines an image larger than the logo cap", async () => {
+  // Confirms the two fetchers genuinely have different byte budgets --
+  // a size between the logo cap (200_000) and the bg-image cap (500_000)
+  // must pass for background images and would fail for logos.
+  const size = 200_001;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(new Uint8Array(size), { status: 200, headers: { "content-type": "image/png" } })
+    )
+  );
+  expect(await fetchBackgroundImageDataUri("https://example.com/mid.png")).toMatch(/^data:image\/png;base64,/);
+  expect(await fetchLogoDataUri("https://example.com/mid.png")).toBeNull();
+});
+
+test("registerSponsoredWidget fetches and carries a background image through for hero", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "image/jpeg" } })
+    )
+  );
+  const server = new McpServer({ name: "s-hero", version: "0" });
+  await registerSponsoredWidget(server, {
+    endpointUrl: "https://my-server.example.com/mcp",
+    text: "deal",
+    url: "https://example.com",
+    template: "hero",
+    backgroundImage: "https://example.com/hero.jpg",
+  });
+  const client = await connectedPair(server);
+  const result: any = await client.readResource({ uri: "ui://lulu-ads/sponsored.html" });
+  const opts = extractInjectedOpts(result.contents[0].text);
+  expect(opts.template).toBe("hero");
+  expect(opts.backgroundImageDataUri).toMatch(/^data:image\/jpeg;base64,/);
 });

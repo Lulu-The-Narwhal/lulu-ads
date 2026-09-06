@@ -8,6 +8,7 @@ from fastmcp import Client, FastMCP
 import lulu_ads.widget as widget
 from lulu_ads.widget import (
     claude_apps_domain,
+    fetch_background_image_data_uri,
     fetch_logo_data_uri,
     register_sponsored_widget,
     sponsored_widget_html,
@@ -320,10 +321,10 @@ def test_widget_html_defaults_to_card_template():
 
 def test_widget_html_rejects_unknown_template():
     try:
-        sponsored_widget_html(text="deal", url="https://x.com", template="hero")
+        sponsored_widget_html(text="deal", url="https://x.com", template="carousel")
         assert False, "expected ValueError"
     except ValueError as exc:
-        assert "unknown template 'hero'" in str(exc)
+        assert "unknown template 'carousel'" in str(exc)
         assert "card" in str(exc)
 
 
@@ -369,3 +370,105 @@ async def test_register_sponsored_widget_carries_template_through_to_resource():
 def test_widget_html_accepts_banner_template():
     html = sponsored_widget_html(text="deal", url="https://x.com", template="banner")
     assert _extract_injected_opts(html)["template"] == "banner"
+
+
+# ── flip-card / scratch-reveal / spin / hero (LUL-53/52/54/48) ──────────
+
+def test_widget_html_accepts_flip_card_scratch_reveal_spin_hero_templates():
+    for name in ("flip-card", "scratch-reveal", "spin", "hero"):
+        html = sponsored_widget_html(text="deal", url="https://x.com", template=name)
+        assert _extract_injected_opts(html)["template"] == name
+
+
+def test_widget_html_omits_background_image_data_uri_when_absent():
+    html = sponsored_widget_html(text="deal", url="https://x.com", template="hero")
+    assert "backgroundImageDataUri" not in _extract_injected_opts(html)
+
+
+def test_widget_html_carries_background_image_data_uri_through_when_given():
+    html = sponsored_widget_html(
+        text="deal", url="https://x.com", template="hero",
+        background_image_data_uri="data:image/png;base64,aGVsbG8=",
+    )
+    assert _extract_injected_opts(html)["backgroundImageDataUri"] == "data:image/png;base64,aGVsbG8="
+
+
+def test_fetch_background_image_data_uri_inlines_a_small_allowed_image(monkeypatch):
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=b"\xff\xd8fake-jpeg-bytes")
+
+    monkeypatch.setattr(widget, "_transport", httpx.MockTransport(handler))
+    result = fetch_background_image_data_uri("https://example.com/hero.jpg")
+    assert result is not None
+    assert result.startswith("data:image/jpeg;base64,")
+
+
+def test_fetch_background_image_data_uri_rejects_oversized_image(monkeypatch):
+    big = b"x" * (widget._MAX_BG_IMAGE_BYTES + 1)
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=big)
+
+    monkeypatch.setattr(widget, "_transport", httpx.MockTransport(handler))
+    assert fetch_background_image_data_uri("https://example.com/huge.png") is None
+
+
+def test_fetch_background_image_data_uri_allows_a_larger_image_than_the_logo_cap(monkeypatch):
+    # Confirms the two fetchers genuinely have different byte budgets, not
+    # just different names -- a size between the logo cap and the bg-image
+    # cap must pass for background images and would fail for logos.
+    size = widget._MAX_LOGO_BYTES + 1
+    assert size <= widget._MAX_BG_IMAGE_BYTES
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=b"x" * size)
+
+    monkeypatch.setattr(widget, "_transport", httpx.MockTransport(handler))
+    assert fetch_background_image_data_uri("https://example.com/mid.png") is not None
+    assert fetch_logo_data_uri("https://example.com/mid.png") is None
+
+
+async def test_register_sponsored_widget_fetches_and_carries_background_image():
+    mcp = FastMCP(name="test-server-hero")
+    widget._transport = httpx.MockTransport(
+        lambda r: httpx.Response(200, headers={"content-type": "image/jpeg"}, content=b"\xff\xd8fake")
+    )
+    try:
+        register_sponsored_widget(
+            mcp,
+            endpoint_url="https://test-server-hero.example.com/mcp",
+            text="deal",
+            url="https://example.com",
+            template="hero",
+            background_image="https://example.com/hero.jpg",
+        )
+        async with Client(mcp) as client:
+            content = await client.read_resource("ui://lulu-ads/sponsored.html")
+            [c] = content
+            opts = _extract_injected_opts(c.text)
+            assert opts["template"] == "hero"
+            assert opts["backgroundImageDataUri"].startswith("data:image/jpeg;base64,")
+    finally:
+        widget._transport = None
+
+
+def test_register_sponsored_widget_rejects_unknown_template_still_before_background_image_fetch():
+    mcp = FastMCP(name="test-server-bad-template-2")
+    calls = []
+    widget._transport = httpx.MockTransport(lambda r: calls.append(1) or httpx.Response(200))
+    try:
+        try:
+            register_sponsored_widget(
+                mcp,
+                endpoint_url="https://test-server-bad-template-2.example.com/mcp",
+                text="deal",
+                url="https://example.com",
+                template="does-not-exist",
+                background_image="https://example.com/hero.jpg",
+            )
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+        assert calls == []
+    finally:
+        widget._transport = None

@@ -75,6 +75,11 @@ export interface InitialOptions {
    * content. Absent (unbuilt `vite dev` source) or unrecognized both fall
    * back to "card", the same default `sponsoredWidgetHtml()` applies. */
   template?: string
+  /** Registration-time background image for the "hero" template (already
+   * a `data:` URI -- see widget.ts's `backgroundImageDataUri`). Static for
+   * the widget's lifetime, same category as `accent*`, never something
+   * that varies per live tool-result. */
+  backgroundImageDataUri?: string
 }
 
 /**

@@ -2,6 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Card } from "@/components/ui/card"
 import { SponsoredCard, type SponsoredCardState, cardStyle } from "./SponsoredCard"
 import { Banner } from "./Banner"
+import { FlipCard } from "./FlipCard"
+import { ScratchReveal } from "./ScratchReveal"
+import { Spin } from "./Spin"
+import { Hero } from "./Hero"
 import { Footer } from "./Footer"
 
 /**
@@ -23,9 +27,16 @@ import { Footer } from "./Footer"
  * this fallback only ever matters for the unbuilt `vite dev` case (no
  * baked-in opts at all) or a bundle/SDK version mismatch.
  */
-const TEMPLATES: Record<string, (props: { state: SponsoredCardState }) => ReactNode> = {
+const TEMPLATES: Record<
+  string,
+  (props: { state: SponsoredCardState; backgroundImageDataUri?: string }) => ReactNode
+> = {
   card: SponsoredCard,
   banner: Banner,
+  "flip-card": FlipCard,
+  "scratch-reveal": ScratchReveal,
+  spin: Spin,
+  hero: Hero,
 }
 import {
   applyAccentTheme,
@@ -120,7 +131,7 @@ function App() {
       aria-busy={state.kind === "loading"}
       aria-label={state.kind === "loading" ? "Loading sponsored content" : undefined}
     >
-      <Content state={state} />
+      <Content state={state} backgroundImageDataUri={initialOptions?.backgroundImageDataUri} />
       <Footer />
     </Card>
   )

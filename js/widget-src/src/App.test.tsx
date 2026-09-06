@@ -204,4 +204,40 @@ describe("App: template dispatch", () => {
     await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
     expect(container.querySelector("span")).toBeNull()
   })
+
+  it("renders FlipCard (a tap-to-reveal button) when template is flip-card", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "flip-card" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    expect(container.querySelector('button[aria-label*="tap to reveal"]')).not.toBeNull()
+  })
+
+  it("renders ScratchReveal (a scratch canvas) when template is scratch-reveal", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "scratch-reveal" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    expect(container.querySelector('[data-testid="scratch-canvas"]')).not.toBeNull()
+  })
+
+  it("renders Spin (the spin badge) when template is spin", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "spin" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    expect(container.querySelector(".lulu-spin-badge")).not.toBeNull()
+  })
+
+  it("renders Hero (bleed-margin wrapper) when template is hero", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "hero" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    expect(container.querySelector('div[style*="-14px -16px"]')).not.toBeNull()
+  })
+
+  it("passes backgroundImageDataUri through to Hero but not other templates", async () => {
+    setOpts({
+      text: "x",
+      url: "https://x.com",
+      template: "hero",
+      backgroundImageDataUri: "data:image/png;base64,aGVsbG8=",
+    })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    const imgs = Array.from(container.querySelectorAll("img")).map((img) => img.src)
+    expect(imgs.some((src) => src.includes("aGVsbG8="))).toBe(true)
+  })
 })

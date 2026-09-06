@@ -77,29 +77,35 @@ const OPTS_PLACEHOLDER = "__LULU_ADS_OPTS__";
 // js/widget-src/'s App.tsx TEMPLATES registry (see LUL-45/LUL-47..57 in
 // Linear) -- adding a name here without shipping/syncing that bundle
 // change would validate a template client code can't actually render.
-export const TEMPLATES = ["card", "banner"] as const;
+export const TEMPLATES = ["card", "banner", "flip-card", "scratch-reveal", "spin", "hero"] as const;
 export type Template = (typeof TEMPLATES)[number];
 
 // Keeps the inlined data: URI (and the resource payload every client
 // downloads) small -- this renders at 28x28 in the card, never a full-size
 // asset. Raise only if you know your host's resource-size limits.
 const MAX_LOGO_BYTES = 200_000;
+// Hero's full-bleed background can't stay at logo-sized limits and still
+// look decent -- larger budget, still capped (see MAX_LOGO_BYTES's own
+// comment for why this exists at all).
+const MAX_BG_IMAGE_BYTES = 500_000;
 const LOGO_FETCH_TIMEOUT_MS = 3_000;
 const ALLOWED_LOGO_CONTENT_TYPES = new Set([
   "image/png", "image/jpeg", "image/jpg", "image/svg+xml", "image/webp", "image/gif",
 ]);
 
-/** Downloads `logoUrl` and returns it as a `data:` URI, or null on any
- * failure (bad status, wrong/missing content-type, oversized, network
- * error, timeout) -- a broken logo must never break the widget or the
- * server registering it, so this never throws. */
-export async function fetchLogoDataUri(logoUrl: string): Promise<string | null> {
+/** Shared fetch-and-inline logic behind `fetchLogoDataUri` and
+ * `fetchBackgroundImageDataUri` -- downloads `url` and returns it as a
+ * `data:` URI, or null on any failure (bad status, wrong/missing
+ * content-type, oversized, network error, timeout). A broken image must
+ * never break the widget or the server registering it, so this never
+ * throws. */
+async function fetchImageDataUri(url: string, maxBytes: number): Promise<string | null> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LOGO_FETCH_TIMEOUT_MS);
     let res: Response;
     try {
-      res = await fetch(logoUrl, { signal: controller.signal, redirect: "follow" });
+      res = await fetch(url, { signal: controller.signal, redirect: "follow" });
     } finally {
       clearTimeout(timer);
     }
@@ -107,11 +113,26 @@ export async function fetchLogoDataUri(logoUrl: string): Promise<string | null> 
     const contentType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
     if (!ALLOWED_LOGO_CONTENT_TYPES.has(contentType)) return null;
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > MAX_LOGO_BYTES) return null;
+    if (buf.length > maxBytes) return null;
     return `data:${contentType};base64,${buf.toString("base64")}`;
   } catch {
     return null;
   }
+}
+
+/** Downloads `logoUrl` and returns it as a `data:` URI, or null on any
+ * failure -- see `fetchImageDataUri`'s doc. */
+export async function fetchLogoDataUri(logoUrl: string): Promise<string | null> {
+  return fetchImageDataUri(logoUrl, MAX_LOGO_BYTES);
+}
+
+/** Downloads `imageUrl` and returns it as a `data:` URI, or null on any
+ * failure -- see `fetchImageDataUri`'s doc. Same CSP-driven reason `logo`
+ * is fetched-and-inlined rather than linked directly (see module
+ * docstring): the widget iframe's `img-src` only allows `'self' data:
+ * <resourceDomains>`. */
+export async function fetchBackgroundImageDataUri(imageUrl: string): Promise<string | null> {
+  return fetchImageDataUri(imageUrl, MAX_BG_IMAGE_BYTES);
 }
 
 // Lulu brand tokens (ads-web/app/globals.css: --lulu-amber / -light / -dark)
@@ -152,6 +173,12 @@ export interface SponsoredWidgetOptions {
    * only format. Registration-time integrator choice, not a per-call
    * value. */
   template?: Template;
+  /** Already-resolved `data:` URI for the `"hero"` template's full-bleed
+   * background -- see `fetchBackgroundImageDataUri` /
+   * `registerSponsoredWidget`'s `backgroundImage` option. Absent on every
+   * other template, and on `"hero"` itself when no image was supplied
+   * (falls back to the shared accent-token gradient). */
+  backgroundImageDataUri?: string;
 }
 
 /** Renders the Lulu Ads sponsored-card widget: a floating, rounded,
@@ -178,6 +205,7 @@ export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
     accentLight = ACCENT_LIGHT,
     accentDark = ACCENT_DARK,
     template = "card",
+    backgroundImageDataUri,
   } = opts;
 
   if (!(TEMPLATES as readonly string[]).includes(template)) {
@@ -194,6 +222,7 @@ export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
     accentLight,
     accentDark,
     template,
+    backgroundImageDataUri,
   };
   // JSON.stringify drops undefined-valued keys (logoDataUri when absent)
   // on its own -- no extra filtering needed to match the old template's
@@ -211,7 +240,8 @@ type AnyServer = {
   registerResource: (name: string, uri: string, config: Record<string, unknown>, readCallback: (...args: any[]) => any) => unknown;
 };
 
-export interface RegisterSponsoredWidgetOptions extends Omit<SponsoredWidgetOptions, "logoDataUri"> {
+export interface RegisterSponsoredWidgetOptions
+  extends Omit<SponsoredWidgetOptions, "logoDataUri" | "backgroundImageDataUri"> {
   endpointUrl: string;
   /** URL to fetch a brand mark from -- downloaded once, here, at
    * registration time, and inlined into the widget as a `data:` URI (see
@@ -219,6 +249,13 @@ export interface RegisterSponsoredWidgetOptions extends Omit<SponsoredWidgetOpti
    * render). A fetch failure just means no logo in the card, never a
    * registration error. */
   logo?: string;
+  /** URL to fetch the `"hero"` template's full-bleed background from --
+   * same fetch-once-and-inline contract as `logo` (a fetch failure just
+   * means the shared accent-token gradient shows instead, never a
+   * registration error). Accepted regardless of `template` (so switching
+   * templates later doesn't require re-plumbing this call), but only
+   * `"hero"` actually renders it. */
+  backgroundImage?: string;
   resourceUri?: string;
   visibility?: ("app" | "model")[];
 }
@@ -246,7 +283,10 @@ export async function registerSponsoredWidget(
   const uri = opts.resourceUri ?? DEFAULT_RESOURCE_URI;
   const domain = claudeAppsDomain(opts.endpointUrl);
   const logoDataUri = opts.logo ? (await fetchLogoDataUri(opts.logo)) ?? undefined : undefined;
-  const html = sponsoredWidgetHtml({ ...opts, logoDataUri });
+  const backgroundImageDataUri = opts.backgroundImage
+    ? (await fetchBackgroundImageDataUri(opts.backgroundImage)) ?? undefined
+    : undefined;
+  const html = sponsoredWidgetHtml({ ...opts, logoDataUri, backgroundImageDataUri });
 
   server.registerResource(
     "sponsored_card",
