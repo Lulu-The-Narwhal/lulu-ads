@@ -73,9 +73,11 @@ const OPTS_PLACEHOLDER = "__LULU_ADS_OPTS__";
 // Registration-time integrator choice, same shape as widgets.ts's
 // registerResultWidget's TEMPLATES/template -- baked into the compiled
 // bundle's opts blob at registration time, never sent dynamically per
-// call. "card" is today's only format; more are added here as their own
-// components ship in js/widget-src/ (see LUL-45/LUL-47..57 in Linear).
-export const TEMPLATES = ["card"] as const;
+// call. Each entry here must have a matching component wired into
+// js/widget-src/'s App.tsx TEMPLATES registry (see LUL-45/LUL-47..57 in
+// Linear) -- adding a name here without shipping/syncing that bundle
+// change would validate a template client code can't actually render.
+export const TEMPLATES = ["card", "banner"] as const;
 export type Template = (typeof TEMPLATES)[number];
 
 // Keeps the inlined data: URI (and the resource payload every client

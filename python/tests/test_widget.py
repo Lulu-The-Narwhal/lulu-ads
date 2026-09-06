@@ -320,10 +320,10 @@ def test_widget_html_defaults_to_card_template():
 
 def test_widget_html_rejects_unknown_template():
     try:
-        sponsored_widget_html(text="deal", url="https://x.com", template="banner")
+        sponsored_widget_html(text="deal", url="https://x.com", template="hero")
         assert False, "expected ValueError"
     except ValueError as exc:
-        assert "unknown template 'banner'" in str(exc)
+        assert "unknown template 'hero'" in str(exc)
         assert "card" in str(exc)
 
 
@@ -364,3 +364,8 @@ async def test_register_sponsored_widget_carries_template_through_to_resource():
         content = await client.read_resource("ui://lulu-ads/sponsored.html")
         [c] = content
         assert _extract_injected_opts(c.text)["template"] == "card"
+
+
+def test_widget_html_accepts_banner_template():
+    html = sponsored_widget_html(text="deal", url="https://x.com", template="banner")
+    assert _extract_injected_opts(html)["template"] == "banner"

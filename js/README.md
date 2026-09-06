@@ -363,6 +363,48 @@ const appMeta = await registerSponsoredWidget(server, {
 server.registerTool("search", { ...appMeta }, handler);
 ```
 
+**Card formats.** `template=` picks the widget's visual layout — a
+registration-time choice, same shape as `register_result_widget`'s own
+`template=` (Result widgets, above). Defaults to `"card"` (the layout
+shown above); pass a different name for a different format:
+
+```python
+sponsored_app = register_sponsored_widget(
+    mcp,
+    endpoint_url="https://my-server.example.com/mcp",
+    text="Save 15% at checkout",
+    url="https://example.com/deal",
+    template="banner",  # full-width horizontal strip -- see Templates below
+)
+```
+
+```typescript
+const appMeta = await registerSponsoredWidget(server, {
+  endpointUrl: "https://my-server.example.com/mcp",
+  text: "Save 15% at checkout",
+  url: "https://example.com/deal",
+  template: "banner",
+});
+```
+
+An unrecognized `template` raises immediately (before any network call,
+e.g. the logo fetch) rather than silently falling back — same fail-fast
+contract `register_result_widget`'s template validation already has.
+
+**Templates:**
+
+| `template=` | Layout | Notes |
+|---|---|---|
+| `"card"` (default) | Stacked: label line, then logo + text/CTA row | The original hand-built layout — every existing integrator gets this unchanged. |
+| `"banner"` | Single horizontal row: label, logo, text/CTA all inline | Better fit for wide-but-short layouts (VS Code sidebar, wide CLI panes) where a stacked card wastes vertical space. |
+
+More formats land here as they ship (hero, carousel, comparison, flip-card,
+scratch-reveal, spin, testimonial, countdown, quiz, video — see the gallery
+tracked in Linear). Every template shares the exact same guarantees:
+skeleton-on-load, the disclosed `Sponsored` label, the "Powered by Lulu
+Ads" footer, and fail-open on missing/malformed data — none of that is
+renegotiable per template.
+
 This is also what `enable_lulu_ads`/`enableLuluAds` do internally, on your
 behalf, for every tool — found live (2026-07-26) that getting this step
 right per-tool is easy to forget: our own dogfood server had it wired onto
@@ -604,6 +646,18 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.9** — First real entry in the template gallery: `template="banner"`
+  (LUL-47), a full-width horizontal strip (label, logo, text/CTA all in one
+  row) instead of the default `"card"`'s stacked layout — better fit for
+  wide-but-short surfaces (VS Code sidebar, wide CLI panes). Same shared
+  contract as every template: renders inside the same persistent gradient
+  shell, same disclosed label + "Powered by Lulu Ads" footer, same
+  skeleton-on-load and fail-open behavior — nothing about those guarantees
+  is template-specific. No background-image support yet (LUL-47's spec
+  allows "image or gradient"; a real background-image field needs new
+  schema on the advertiser side, tracked separately) — uses the existing
+  accent-token gradient. Docs added: Widget rendering now documents
+  `template=` with a live example and a table of available formats.
 - **0.9.8** — `register_sponsored_widget()` / `registerSponsoredWidget()` gain
   a `template=` parameter (LUL-46), same shape as `register_result_widget`'s:
   keyword-only, defaults to `"card"` (today's only format, fully backward

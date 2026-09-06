@@ -98,10 +98,11 @@ _DEFAULT_RESOURCE_URI = "ui://lulu-ads/sponsored.html"
 # Registration-time integrator choice, same shape as widgets.py's
 # `register_result_widget`'s `TEMPLATES`/`template=` -- baked into the
 # compiled bundle's opts blob at registration time, never sent dynamically
-# per call. "card" is today's only format (the existing single hand-built
-# layout); more are added here as their own components ship in
-# js/widget-src/ (see LUL-45/LUL-47..57 in Linear).
-TEMPLATES = ("card",)
+# per call. Each entry here must have a matching component wired into
+# js/widget-src/'s App.tsx TEMPLATES registry (see LUL-45/LUL-47..57 in
+# Linear) -- adding a name here without shipping/syncing that bundle
+# change would validate a template client code can't actually render.
+TEMPLATES = ("card", "banner")
 
 # Keeps the inlined data: URI (and the resource payload every client
 # downloads) small -- this renders at 28x28 in the card, never a full-size

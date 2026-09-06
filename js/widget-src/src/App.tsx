@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Card } from "@/components/ui/card"
 import { SponsoredCard, type SponsoredCardState, cardStyle } from "./SponsoredCard"
+import { Banner } from "./Banner"
 import { Footer } from "./Footer"
 
 /**
@@ -24,6 +25,7 @@ import { Footer } from "./Footer"
  */
 const TEMPLATES: Record<string, (props: { state: SponsoredCardState }) => ReactNode> = {
   card: SponsoredCard,
+  banner: Banner,
 }
 import {
   applyAccentTheme,

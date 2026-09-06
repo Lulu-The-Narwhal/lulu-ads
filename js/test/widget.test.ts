@@ -225,8 +225,8 @@ test("sponsoredWidgetHtml defaults to the card template", () => {
 
 test("sponsoredWidgetHtml rejects an unknown template", () => {
   expect(() =>
-    sponsoredWidgetHtml({ text: "deal", url: "https://example.com", template: "banner" as any })
-  ).toThrow(/unknown template "banner".*card/);
+    sponsoredWidgetHtml({ text: "deal", url: "https://example.com", template: "hero" as any })
+  ).toThrow(/unknown template "hero".*card/);
 });
 
 test("registerSponsoredWidget rejects an unknown template before any network call", async () => {
@@ -256,4 +256,9 @@ test("registerSponsoredWidget carries template through to the resource", async (
   const client = await connectedPair(server);
   const result: any = await client.readResource({ uri: "ui://lulu-ads/sponsored.html" });
   expect(extractInjectedOpts(result.contents[0].text).template).toBe("card");
+});
+
+test("sponsoredWidgetHtml accepts the banner template", () => {
+  const html = sponsoredWidgetHtml({ text: "deal", url: "https://example.com", template: "banner" });
+  expect(extractInjectedOpts(html).template).toBe("banner");
 });

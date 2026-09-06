@@ -131,3 +131,77 @@ describe("App: loading->settled size-changed resend", () => {
     expect(sizeChangedCalls(postMessage)).toHaveLength(2)
   })
 })
+
+/**
+ * Template dispatch (LUL-46 registry / LUL-47 banner): App.tsx picks the
+ * inner content component from `initialOptions.template`, defaulting to
+ * "card" (SponsoredCard) when absent/unrecognized. Structural discriminator
+ * used below: SponsoredCard's loaded state has no `<span>` anywhere (label
+ * is a `<div>`, everything else is `<div>`/`<img>`/a shadcn Button) --
+ * Banner's loaded state renders its label as a `<span>`. Real content
+ * (label/text/cta) is identical between templates by design, so a text-only
+ * assertion couldn't tell them apart; this checks which component actually
+ * mounted.
+ */
+describe("App: template dispatch", () => {
+  let container: HTMLDivElement
+  let root: Root
+  let optsEl: HTMLElement
+
+  function setOpts(opts: Record<string, unknown> | null) {
+    optsEl.setAttribute("data-opts", opts ? JSON.stringify(opts) : "")
+  }
+
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    optsEl = document.createElement("div")
+    optsEl.id = "lulu-ads-opts"
+    document.body.appendChild(optsEl)
+    vi.stubGlobal("parent", { postMessage: vi.fn() } as unknown as Window)
+    Object.defineProperty(document, "readyState", { value: "complete", configurable: true })
+  })
+
+  afterEach(() => {
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    optsEl.remove()
+    vi.unstubAllGlobals()
+  })
+
+  async function renderWithToolResult(sponsored: Record<string, unknown>) {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(<App />)
+    })
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", { data: toolResultMessage(sponsored) }))
+    })
+  }
+
+  it("renders SponsoredCard (no span) when template is card", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "card" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    expect(container.querySelector("span")).toBeNull()
+  })
+
+  it("renders Banner (label as span) when template is banner", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "banner" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    expect(container.querySelector("span")?.textContent).toBe("Sponsored")
+  })
+
+  it("falls back to card for an unrecognized template value", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "does-not-exist" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    expect(container.querySelector("span")).toBeNull()
+  })
+
+  it("falls back to card when initialOptions is absent entirely", async () => {
+    setOpts(null)
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    expect(container.querySelector("span")).toBeNull()
+  })
+})
