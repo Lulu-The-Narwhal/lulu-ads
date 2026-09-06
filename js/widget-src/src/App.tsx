@@ -40,6 +40,7 @@ const TEMPLATES: Record<
 }
 import {
   applyAccentTheme,
+  fireImpressionBeacon,
   initClickRedirect,
   initHandshake,
   listenForToolResult,
@@ -81,6 +82,15 @@ function App() {
   // once already settled).
   const hasSentSettledSize = useRef(false)
 
+  // Guards the rendered-impression beacon (LUL-71) so it fires at most
+  // once per widget instance, mirroring the `el.dataset.impFired` guard
+  // widgets.py's fireImpressionBeacon uses for the same reason in the
+  // other widget system -- belt-and-suspenders against listenForToolResult
+  // somehow delivering more than one real tool-result over this widget's
+  // lifetime (not expected, but a double-fired beacon would overcount a
+  // publisher's own impressions, which is the wrong direction to fail in).
+  const hasFiredImpression = useRef(false)
+
   useEffect(() => {
     // Per-integrator brand colors (accent/accentLight/accentDark) --
     // static for the widget's lifetime, applied once, independent of
@@ -97,6 +107,16 @@ function App() {
     const unsubscribeClicks = initClickRedirect()
 
     const unsubscribeToolResult = listenForToolResult((sponsored) => {
+      // Fires the instant the disclosed content is about to become
+      // visible, same as widgets.py's reference implementation -- never
+      // gated on a per-template reveal interaction (FlipCard's front
+      // teaser and ScratchReveal's covered content both mount as part of
+      // this same "loaded" render, so "rendered" is correctly "seen" here
+      // regardless of which template ends up drawn).
+      if (sponsored?.impUrl && !hasFiredImpression.current) {
+        hasFiredImpression.current = true
+        fireImpressionBeacon(sponsored.impUrl)
+      }
       setState(sponsored ? { kind: "loaded", ...sponsored } : { kind: "noFill" })
     }, initialOptions)
 

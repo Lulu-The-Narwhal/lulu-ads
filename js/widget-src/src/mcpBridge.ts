@@ -32,13 +32,17 @@
  * the wire payload (structuredContent.sponsored only carries
  * {label,text,url,logo_url}, confirmed live by Task 1) -- it's a
  * widget-level constant, same default `sponsoredWidgetHtml()` already
- * uses today. */
+ * uses today. `impUrl` (LUL-71) IS part of the wire payload -- see
+ * `fireImpressionBeacon`'s doc for why this widget never fired it despite
+ * the field existing end-to-end (the Node/Python clients already parse
+ * and expose it; only this bridge dropped it). */
 export interface SponsoredData {
   label: string
   text: string
   url: string
   logoDataUri?: string
   cta: string
+  impUrl?: string
 }
 
 const DEFAULT_CTA = "Learn more →"
@@ -110,19 +114,23 @@ export function readInitialOptions(): InitialOptions | null {
 /** Loose shape of the wire payload -- only what we read. Field names
  * mirror Task 1's confirmed live shape: {jsonrpc, method, params:
  * {content, isError, structuredContent:{...,sponsored:{label,text,url,
- * logo_url}}}}. `logoUrl` (camelCase) is also accepted defensively: the
- * compiled widget bundle is shared by both the JS and Python SDKs (see
- * design doc), and js/src/index.ts's `Sponsored` TS type currently
- * serializes that field as `logoUrl` while the Python client and Task 1's
- * live-confirmed payload both use `logo_url` -- an existing cross-SDK
- * naming inconsistency this bridge works around rather than silently
- * assumes away. */
+ * logo_url}}}}, plus `imp_url` (LUL-71) -- present on the wire and parsed
+ * by both clients (js/src/index.ts's `Sponsored.impUrl`, the Python
+ * client's `imp_url`) but never previously read here. `logoUrl`/`impUrl`
+ * (camelCase) are also accepted defensively: the compiled widget bundle is
+ * shared by both the JS and Python SDKs (see design doc), and
+ * js/src/index.ts's `Sponsored` TS type currently serializes those fields
+ * camelCase while the Python client and Task 1's live-confirmed payload
+ * both use snake_case -- an existing cross-SDK naming inconsistency this
+ * bridge works around rather than silently assumes away. */
 interface RawSponsored {
   label?: unknown
   text?: unknown
   url?: unknown
   logo_url?: unknown
   logoUrl?: unknown
+  imp_url?: unknown
+  impUrl?: unknown
 }
 
 interface RawToolResultMessage {
@@ -157,9 +165,40 @@ export function extractSponsored(msg: RawToolResultMessage, defaults?: InitialOp
       : typeof sponsored.logoUrl === "string" && sponsored.logoUrl
         ? sponsored.logoUrl
         : undefined
+  const impUrl =
+    typeof sponsored.imp_url === "string" && sponsored.imp_url
+      ? sponsored.imp_url
+      : typeof sponsored.impUrl === "string" && sponsored.impUrl
+        ? sponsored.impUrl
+        : undefined
   const cta = (defaults?.cta && defaults.cta.trim()) ? defaults.cta : DEFAULT_CTA
 
-  return { label, text, url, logoDataUri, cta }
+  return { label, text, url, logoDataUri, cta, impUrl }
+}
+
+/**
+ * Rendered-impression beacon (LUL-71): fires a fire-and-forget 1x1 `<img>`
+ * request to `impUrl` so CPM counts what a human actually saw rendered,
+ * never mere API output. Ports the pattern `widgets.py`'s
+ * `fireImpressionBeacon`/`resultFrame.ts` already use for the OTHER widget
+ * system (register_result_widget()'s footer strip) -- that implementation
+ * fires the instant the disclosed "Sponsored" content becomes visible,
+ * regardless of any per-template reveal interaction (flip-card's front
+ * teaser counts as "seen" before the user ever flips it; scratch-reveal's
+ * covered content counts as "seen" before anyone scratches). This widget's
+ * `App.tsx` calls this once, centrally, on the loading->"loaded"
+ * transition -- true for every template here too, including FlipCard
+ * (its front teaser mounts as part of the same "loaded" render, never
+ * gated behind the flip) and ScratchReveal (its real content is already
+ * in the DOM under the canvas overlay at that same moment). No-op if
+ * `impUrl` is falsy. Callers are responsible for firing this at most once
+ * per widget instance -- this function itself has no dedup guard, since
+ * it has no state to guard with (mirrors `openLink`'s statelessness).
+ */
+export function fireImpressionBeacon(impUrl?: string): void {
+  if (!impUrl) return
+  const px = new Image(1, 1)
+  px.src = impUrl
 }
 
 function isJsonRpcMessage(data: unknown): data is RawToolResultMessage {

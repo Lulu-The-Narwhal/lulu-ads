@@ -678,6 +678,28 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.13** — Fixed a rendered-impression billing gap (LUL-71) in the
+  standalone sponsor-card widget (`register_sponsored_widget()`/
+  `registerSponsoredWidget()` — the React-built card, banner, flip-card,
+  scratch-reveal, spin, and hero templates): the wire payload's `imp_url`/
+  `impUrl` field was parsed and exposed by both clients (`Sponsored.impUrl`
+  in the Node SDK, `imp_url` in the Python client) but silently dropped by
+  the widget bundle's own message parsing before it ever reached the
+  React components — so the rendered-impression beacon (a 1px `<img>` that
+  confirms a human actually saw the ad, which CPM is billed against) never
+  fired for this widget at all, for any template, since it shipped. Fixed
+  centrally in `App.tsx`'s loading→"loaded" transition — the same moment
+  every template's disclosed content becomes visible, including
+  flip-card's front teaser (fires before the user ever flips it, matching
+  `register_result_widget()`'s footer strip's own already-correct
+  behavior) and scratch-reveal's covered content (fires before anyone
+  scratches). `register_sponsored_widget()`/`registerSponsoredWidget()`
+  also now declare the `ads.getlulu.dev` resource/connect CSP domains the
+  beacon pixel needs to not be silently blocked by a host's default
+  `img-src 'self' data:` policy — the same declaration
+  `register_result_widget()` already had. Verified live: the beacon fires
+  a real HTTP request the instant a `tool-result` with `imp_url` arrives,
+  confirmed via a local server's access log, not just unit tests.
 - **0.9.12** — Result-widget footer `sponsor_template=` (LUL-69) redesigned
   from a slim single-line strip into a cover card: a colorful cover band —
   a real sponsor image when the live payload supplies `cover_image_url`/

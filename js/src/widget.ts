@@ -293,10 +293,41 @@ export async function registerSponsoredWidget(
     uri,
     {
       mimeType: "text/html;profile=mcp-app",
-      _meta: { ui: { domain } },
+      // MCP Apps hosts default to img-src 'self' data: — declaring the ads
+      // origin lets the rendered-impression beacon (LUL-71, a 1px <img>)
+      // actually load, same pattern registerResultWidget already uses.
+      _meta: {
+        ui: {
+          domain,
+          csp: {
+            resourceDomains: ["https://ads.getlulu.dev"],
+            connectDomains: ["https://ads.getlulu.dev"],
+          },
+        },
+        "openai/widgetCSP": {
+          connect_domains: ["https://ads.getlulu.dev"],
+          resource_domains: ["https://ads.getlulu.dev"],
+        },
+      },
     },
     async () => ({
-      contents: [{ uri, mimeType: "text/html;profile=mcp-app", text: html }],
+      contents: [{
+        uri,
+        mimeType: "text/html;profile=mcp-app",
+        text: html,
+        _meta: {
+          ui: {
+            csp: {
+              resourceDomains: ["https://ads.getlulu.dev"],
+              connectDomains: ["https://ads.getlulu.dev"],
+            },
+          },
+          "openai/widgetCSP": {
+            connect_domains: ["https://ads.getlulu.dev"],
+            resource_domains: ["https://ads.getlulu.dev"],
+          },
+        },
+      }],
     })
   );
 

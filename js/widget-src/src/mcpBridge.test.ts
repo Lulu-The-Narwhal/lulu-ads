@@ -1,5 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
-import { extractSponsored, listenForToolResult, initHandshake, initClickRedirect, openLink } from "./mcpBridge"
+import {
+  extractSponsored,
+  listenForToolResult,
+  initHandshake,
+  initClickRedirect,
+  openLink,
+  fireImpressionBeacon,
+} from "./mcpBridge"
 
 /** Task 1's confirmed real payload shape (progress.md):
  * {jsonrpc:"2.0", method:"ui/notifications/tool-result", params:
@@ -60,6 +67,68 @@ describe("extractSponsored", () => {
   it("omits logoDataUri when no logo field is present", () => {
     const msg = toolResultMessage({ text: "hi", url: "https://x.example" })
     expect(extractSponsored(msg)?.logoDataUri).toBeUndefined()
+  })
+
+  // LUL-71: imp_url was present on the wire the whole time (both clients
+  // already parse it, see js/src/index.ts's Sponsored.impUrl) but this
+  // function dropped it silently -- the widget never fired a
+  // rendered-impression beacon as a result. These pin the fix.
+  it("reads imp_url into impUrl (LUL-71)", () => {
+    const msg = toolResultMessage({
+      text: "hi",
+      url: "https://x.example",
+      imp_url: "https://ads.getlulu.dev/imp/abc",
+    })
+    expect(extractSponsored(msg)?.impUrl).toBe("https://ads.getlulu.dev/imp/abc")
+  })
+
+  it("accepts camelCase impUrl as a fallback, same as logoUrl", () => {
+    const msg = toolResultMessage({
+      text: "hi",
+      url: "https://x.example",
+      impUrl: "https://ads.getlulu.dev/imp/xyz",
+    })
+    expect(extractSponsored(msg)?.impUrl).toBe("https://ads.getlulu.dev/imp/xyz")
+  })
+
+  it("omits impUrl when no impression field is present", () => {
+    const msg = toolResultMessage({ text: "hi", url: "https://x.example" })
+    expect(extractSponsored(msg)?.impUrl).toBeUndefined()
+  })
+})
+
+describe("fireImpressionBeacon (LUL-71)", () => {
+  let created: { src: string }[]
+
+  beforeEach(() => {
+    created = []
+    class FakeImage {
+      src = ""
+      constructor() {
+        created.push(this)
+      }
+    }
+    vi.stubGlobal("Image", FakeImage)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("fires a 1x1 image request to impUrl", () => {
+    fireImpressionBeacon("https://ads.getlulu.dev/imp/abc")
+    expect(created).toHaveLength(1)
+    expect(created[0].src).toBe("https://ads.getlulu.dev/imp/abc")
+  })
+
+  it("does nothing when impUrl is undefined", () => {
+    fireImpressionBeacon(undefined)
+    expect(created).toHaveLength(0)
+  })
+
+  it("does nothing when impUrl is an empty string", () => {
+    fireImpressionBeacon("")
+    expect(created).toHaveLength(0)
   })
 })
 

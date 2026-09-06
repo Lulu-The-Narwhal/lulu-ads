@@ -143,6 +143,120 @@ describe("App: loading->settled size-changed resend", () => {
  * assertion couldn't tell them apart; this checks which component actually
  * mounted.
  */
+/**
+ * Rendered-impression beacon (LUL-71): App.tsx fires it once, centrally,
+ * on the loading->"loaded" transition, regardless of which template ends
+ * up rendered -- see mcpBridge.ts's fireImpressionBeacon doc for why a
+ * single central fire point is correct for FlipCard/ScratchReveal too,
+ * unlike the reference implementation's per-branch firing (which is only
+ * a structural necessity of the other, vanilla-JS widget system).
+ */
+describe("App: rendered-impression beacon (LUL-71)", () => {
+  let container: HTMLDivElement
+  let root: Root
+  let created: { src: string }[]
+
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    vi.stubGlobal("parent", { postMessage: vi.fn() } as unknown as Window)
+    Object.defineProperty(document, "readyState", { value: "complete", configurable: true })
+
+    created = []
+    class FakeImage {
+      src = ""
+      constructor() {
+        created.push(this)
+      }
+    }
+    vi.stubGlobal("Image", FakeImage)
+  })
+
+  afterEach(() => {
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    vi.unstubAllGlobals()
+  })
+
+  it("fires the beacon once when the tool-result carries imp_url", async () => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(<App />)
+    })
+    expect(created).toHaveLength(0)
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: toolResultMessage({
+            text: "Save 15%",
+            url: "https://example.com",
+            imp_url: "https://ads.getlulu.dev/imp/abc",
+          }),
+        })
+      )
+    })
+
+    expect(created).toHaveLength(1)
+    expect(created[0].src).toBe("https://ads.getlulu.dev/imp/abc")
+  })
+
+  it("does not fire when imp_url is absent from the payload", async () => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(<App />)
+    })
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: toolResultMessage({ text: "Save 15%", url: "https://example.com" }),
+        })
+      )
+    })
+    expect(created).toHaveLength(0)
+  })
+
+  it("does not fire on the no-fill case", async () => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(<App />)
+    })
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", { data: toolResultMessage(undefined) }))
+    })
+    expect(created).toHaveLength(0)
+  })
+
+  it("fires exactly once even if additional re-renders happen after settling", async () => {
+    await act(async () => {
+      root = createRoot(container)
+      root.render(<App />)
+    })
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: toolResultMessage({
+            text: "Save 15%",
+            url: "https://example.com",
+            imp_url: "https://ads.getlulu.dev/imp/abc",
+          }),
+        })
+      )
+    })
+    expect(created).toHaveLength(1)
+
+    await act(async () => {
+      root.render(<App />)
+    })
+    await act(async () => {
+      root.render(<App />)
+    })
+    expect(created).toHaveLength(1)
+  })
+})
+
 describe("App: template dispatch", () => {
   let container: HTMLDivElement
   let root: Root

@@ -338,11 +338,31 @@ def register_sponsored_widget(
         template=template, background_image_data_uri=background_image_data_uri,
     )
 
+    # MCP Apps hosts apply a default CSP of img-src 'self' data: — the
+    # rendered-impression beacon (LUL-71, a 1px <img> to ads.getlulu.dev)
+    # is blocked unless the resource declares the domain. connect_domains
+    # rides along for a future sendBeacon variant. Same pattern as
+    # register_result_widget()'s resource_app below -- older fastmcp
+    # versions without ResourceCSP just skip the declaration.
+    resource_app = AppConfig(domain=domain)
+    try:
+        from fastmcp.apps.config import ResourceCSP
+
+        resource_app = AppConfig(
+            domain=domain,
+            csp=ResourceCSP(
+                resource_domains=["https://ads.getlulu.dev"],
+                connect_domains=["https://ads.getlulu.dev"],
+            ),
+        )
+    except (ImportError, TypeError):
+        pass
+
     @mcp.resource(
         resource_uri,
         name="sponsored_card",
         mime_type="text/html;profile=mcp-app",
-        app=AppConfig(domain=domain),
+        app=resource_app,
     )
     def _sponsored_card_resource() -> str:
         return widget_html

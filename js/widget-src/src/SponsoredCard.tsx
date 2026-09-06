@@ -27,6 +27,11 @@ export type SponsoredCardState =
       url: string
       logoDataUri?: string
       cta: string
+      /** Rendered-impression beacon URL (LUL-71) -- not rendered by any
+       * template component itself; App.tsx fires it once, centrally, on
+       * this "loaded" transition. Carried on state only because it's
+       * spread in from `SponsoredData` alongside everything else. */
+      impUrl?: string
     }
   | { kind: "noFill" }
 

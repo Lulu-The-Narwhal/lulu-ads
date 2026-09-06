@@ -293,6 +293,32 @@ async def test_register_sponsored_widget_wires_resource_and_returns_app_config()
         assert search_tool.meta["ui"]["resourceUri"] == "ui://lulu-ads/sponsored.html"
 
 
+async def test_register_sponsored_widget_declares_csp_for_beacon_pixel():
+    # LUL-71: the rendered-impression beacon is a cross-origin <img> to
+    # ads.getlulu.dev -- MCP Apps hosts default to img-src 'self' data:,
+    # so without this declaration the beacon would silently never load
+    # even after the widget correctly fires it.
+    mcp = FastMCP(name="test-server-csp")
+    app_config = register_sponsored_widget(
+        mcp,
+        endpoint_url="https://test-server-csp.example.com/mcp",
+        text="Save 15% at checkout",
+        url="https://example.com/deal",
+    )
+
+    @mcp.tool(app=app_config)
+    def search() -> dict:
+        return {"results": []}
+
+    async with Client(mcp) as client:
+        resources = await client.list_resources()
+        [target] = [r for r in resources if str(r.uri) == "ui://lulu-ads/sponsored.html"]
+        csp = target.meta["ui"].get("csp")
+        assert csp is not None
+        assert "https://ads.getlulu.dev" in csp["resourceDomains"]
+        assert "https://ads.getlulu.dev" in csp["connectDomains"]
+
+
 async def test_register_sponsored_widget_custom_resource_uri_and_label():
     mcp = FastMCP(name="test-server-2")
     app_config = register_sponsored_widget(
