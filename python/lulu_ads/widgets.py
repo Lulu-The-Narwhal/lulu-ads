@@ -62,7 +62,24 @@ from lulu_ads.widget import _escape_html, claude_apps_domain
 
 TEMPLATES = ("stat-card", "table-card", "notice-card", "carousel-card")
 
+# The SPONSORED strip's own visual template (LUL-69) -- independent of
+# `template` above, which picks the result-widget's body layout. "card" is
+# the original, always-visible strip. The others port widget.py's
+# React templates into this frame's own vanilla-JS renderer (see
+# renderSponsored()): "flip-card" (compact teaser, flips to reveal the
+# offer on tap), "spin" (decorative spin-settle on the logo, content
+# visible immediately -- never gated, per LUL-54's anti-gambling-mechanic
+# guardrail), "scratch-reveal" (canvas scratch-off layer, auto-reveals
+# after 3s regardless of interaction, per LUL-52's guardrail). "banner"
+# and "hero" are deliberately NOT here -- this strip is already a single
+# horizontal row (banner would be a no-op) and a full-bleed background
+# doesn't fit a slim footer bar (hero stays a standalone-widget-only
+# format for now). Only formats that make sense ported into a footer
+# strip get added here, not the whole gallery automatically.
+SPONSOR_TEMPLATES = ("card", "flip-card", "spin", "scratch-reveal")
+
 _TEMPLATE_PLACEHOLDER = "__LW_TEMPLATE__"
+_SPONSOR_TEMPLATE_PLACEHOLDER = "__LW_SPONSOR_TEMPLATE__"
 _CONFIG_PLACEHOLDER = "__LW_CONFIG__"
 
 # The single shared frame: tokens + primitives + per-template CSS + the
@@ -266,6 +283,66 @@ FRAME_HTML = r"""<!doctype html>
     .lw-value { font-size: 46px; }
   }
 
+  /* SPONSORED strip: flip-card sponsor_template (LUL-69). Wraps the
+     EXACT SAME strip markup/CSS above as the "back" face -- flip-card
+     changes only what's shown before the first tap, never the strip's
+     own visual design once revealed. Front face is a compact "SPONSORED
+     · via Lulu Ads" teaser; tapping crossfades to the real strip (logo/
+     text/CTA), matching widget.py's FlipCard.tsx in spirit (front always
+     discloses what this is, only the offer's own details sit behind the
+     interaction) -- a crossfade rather than a true 3D rotation, which
+     proved unreliable nested this deeply inside an already-sandboxed
+     MCP Apps iframe; a footer strip doesn't need the full 3D effect the
+     standalone template has to earn the "flip-card" name here. */
+  .lw-strip-flip { display: none; position: relative; cursor: pointer; min-height: 33px; }
+  .lw-strip-flip.show { display: block; }
+  /* Both faces are ALWAYS position:absolute + inset:0 -- fully stacked on
+     top of each other from the start, never side-by-side flex siblings --
+     so toggling opacity is a pure crossfade with no layout shift. */
+  .lw-strip-front {
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+    background: rgba(0,0,0,.30); font-size: 12.5px;
+    position: absolute; inset: 0; transition: opacity .3s; opacity: 1;
+  }
+  .lw-strip-flip.flipped .lw-strip-front { opacity: 0; pointer-events: none; }
+  /* Overrides the base .lw-strip's own `display: none` -- visibility of
+     the back face is controlled entirely by the OUTER .lw-strip-flip's
+     flipped state above, not by adding .show to this nested element too
+     (nothing ever does). Starts transparent (stacked under the front
+     teaser) and crossfades in on .flipped, mirroring the front's own
+     fade so nothing pops instantly in either direction. */
+  .lw-strip-flip .lw-strip {
+    display: flex; position: absolute; inset: 0; opacity: 0; transition: opacity .3s;
+  }
+  .lw-strip-flip.flipped .lw-strip { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .lw-strip-front, .lw-strip-flip .lw-strip { transition: none; }
+  }
+
+  /* SPONSORED strip: spin sponsor_template (LUL-69/54). Content is
+     visible immediately, exactly like the default "card" strip -- spin
+     is decoration only, never gates the offer (binding guardrail: no
+     multiple possible outcomes, this is motion, not a mechanic). Applied
+     to the SAME #sp-logo element the default strip already uses. */
+  @keyframes lw-spin-settle {
+    0% { transform: rotate(0deg) scale(.85); opacity: .6; }
+    70% { transform: rotate(936deg) scale(1.08); opacity: 1; }
+    100% { transform: rotate(1080deg) scale(1); opacity: 1; }
+  }
+  .lw-logo-spin { animation: lw-spin-settle 1.1s cubic-bezier(.2,.8,.2,1) 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .lw-logo-spin { animation: none; }
+  }
+
+  /* SPONSORED strip: scratch-reveal sponsor_template (LUL-69/52). Same
+     content/layout as the default strip, with a canvas scratch-off layer
+     on top -- .lw-strip already has `position: relative; overflow:
+     hidden` (see its base rule above), so this only needs to fill that
+     existing box. Auto-reveals after 3s regardless of interaction
+     (binding guardrail: the offer underneath never depends on whether or
+     how much the user scratched -- see the JS timer in renderSponsored). */
+  .lw-scratch-canvas { position: absolute; inset: 0; cursor: pointer; touch-action: none; }
+
   .lw-skel { height: 84px; }
   .lw-err { padding: 22px 20px 26px; font-size: 14px; color: var(--lw-ink-soft); }
 </style>
@@ -285,6 +362,27 @@ FRAME_HTML = r"""<!doctype html>
           <div class="ctarow"><span class="cta" id="sp-cta">Learn more →</span></div>
         </div>
       </div>
+      <canvas class="lw-scratch-canvas" id="scratch-canvas" style="display:none"></canvas>
+    </div>
+    <div class="lw-strip-flip" id="strip-flip">
+      <div class="lw-strip-front">
+        <span class="badge">SPONSORED</span>
+        <span class="txt">See today's offer</span>
+        <span class="cta">Tap to reveal →</span>
+      </div>
+      <div class="lw-strip" id="strip-back">
+        <div class="toprow">
+          <span class="badge">SPONSORED</span>
+          <span class="via">via Lulu Ads</span>
+        </div>
+        <div class="bottomrow">
+          <span class="lw-logo" id="sp-logo-flip" style="display:none"></span>
+          <div class="rightcol">
+            <span class="txt" id="sp-text-flip"></span>
+            <div class="ctarow"><span class="cta" id="sp-cta-flip">Learn more →</span></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -292,6 +390,7 @@ FRAME_HTML = r"""<!doctype html>
 (function () {
   "use strict";
   var TEMPLATE = "__LW_TEMPLATE__";
+  var SPONSOR_TEMPLATE = "__LW_SPONSOR_TEMPLATE__";
   var CONFIG = {};
   try { CONFIG = JSON.parse(document.getElementById("card").getAttribute("data-lw-config")) || {}; } catch (e) {}
   var MAPPING = CONFIG.mapping || {};
@@ -565,15 +664,24 @@ FRAME_HTML = r"""<!doctype html>
     for (var i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
     return Math.abs(h);
   }
-  function renderSponsored(sc) {
-    var s = sc && sc.sponsored;
-    if (!s || typeof s.text !== "string" || typeof s.url !== "string" || !s.text || !s.url) return;
-    document.getElementById("sp-text").textContent = s.text;
-    var brandWord = (s.text.match(/[A-Za-z0-9][\w.\-]*/) || [""])[0];
-    var logo = document.getElementById("sp-logo");
+  /* Fills one strip instance's logo tile -- shared by the default "card"
+     strip (#sp-logo/#sp-text/#sp-cta) and flip-card's back face (#sp-logo-
+     flip/#sp-text-flip/#sp-cta-flip), so both presentations get the exact
+     same logo/letter-tile-fallback behavior from one implementation. */
+  function fillLogo(logo, brandWord, s) {
+    // Preserves any class NOT owned by this function (specifically
+    // "lw-logo-spin", added by the spin sponsor_template) across a full
+    // className reassignment -- without this, a real logo's async
+    // img.onload firing mid-animation would silently wipe the spin class
+    // and cut the flourish off abruptly.
+    var extra = logo.className.split(/\s+/).filter(function (c) {
+      return c && c !== "lw-logo" && c !== "fallback";
+    }).join(" ");
+    function withExtra(base) { return extra ? base + " " + extra : base; }
+
     function letterTile() {
       logo.textContent = (brandWord.charAt(0) || "•").toUpperCase();
-      logo.className = "lw-logo fallback";
+      logo.className = withExtra("lw-logo fallback");
       logo.style.background = FALLBACK_BGS[hashCode(brandWord || s.text) % FALLBACK_BGS.length];
       logo.style.display = "flex";
     }
@@ -584,26 +692,170 @@ FRAME_HTML = r"""<!doctype html>
     if (logoUrl) {
       var img = document.createElement("img");
       img.alt = "";
-      img.onload = function () { logo.textContent = ""; logo.className = "lw-logo"; logo.style.background = "#fff"; logo.appendChild(img); logo.style.display = "flex"; };
+      img.onload = function () { logo.textContent = ""; logo.className = withExtra("lw-logo"); logo.style.background = "#fff"; logo.appendChild(img); logo.style.display = "flex"; };
       img.onerror = letterTile;
       img.src = logoUrl;
     } else {
       letterTile();
     }
-    var strip = document.getElementById("strip");
-    strip.classList.add("show");
-    /* Rendered-impression beacon: fires exactly when the strip becomes
-       visible -- never on mere API output -- so CPM counts what a human
-       actually saw. Fire-and-forget; a blocked/failed pixel changes
+  }
+
+  function fireImpressionBeacon(el, s) {
+    /* Rendered-impression beacon: fires exactly when the strip (or, for
+       flip-card, its front-face teaser) becomes visible -- never on mere
+       API output -- so CPM counts what a human actually saw. The
+       disclosure ("Sponsored") is what's visible at that moment for both
+       presentations, so both fire here, not gated on flip-card's reveal
+       interaction. Fire-and-forget; a blocked/failed pixel changes
        nothing visually. */
     var impUrl = (typeof s.imp_url === "string" && s.imp_url) ? s.imp_url
       : (typeof s.impUrl === "string" ? s.impUrl : "");
-    if (impUrl && !strip.dataset.impFired) {
-      strip.dataset.impFired = "1";
+    if (impUrl && !el.dataset.impFired) {
+      el.dataset.impFired = "1";
       var px = new Image(1, 1);
       px.src = impUrl;
     }
+  }
+
+  function renderSponsored(sc) {
+    var s = sc && sc.sponsored;
+    if (!s || typeof s.text !== "string" || typeof s.url !== "string" || !s.text || !s.url) return;
+    var brandWord = (s.text.match(/[A-Za-z0-9][\w.\-]*/) || [""])[0];
+
+    if (SPONSOR_TEMPLATE === "flip-card") {
+      document.getElementById("sp-text-flip").textContent = s.text;
+      fillLogo(document.getElementById("sp-logo-flip"), brandWord, s);
+      var flip = document.getElementById("strip-flip");
+      var front = flip.querySelector(".lw-strip-front");
+      var back = document.getElementById("strip-back");
+      flip.classList.add("show");
+      // Both faces are position:absolute (pure crossfade, no layout
+      // shift), so the container has no intrinsic height of its own --
+      // set it explicitly to whichever face is currently showing.
+      // back.scrollHeight is measurable even at opacity:0 (layout still
+      // happens, only painting is suppressed), so this works before the
+      // very first flip too, not just after.
+      flip.style.height = front.offsetHeight + "px";
+      fireImpressionBeacon(flip, s);
+      // First click flips to reveal the real offer (back face); once
+      // flipped, the back face IS the offer -- a further click opens it,
+      // matching every other template's "click the offer to follow it"
+      // contract instead of trapping the user in a flip loop.
+      flip.addEventListener("click", function () {
+        if (flip.classList.contains("flipped")) {
+          openLink(s.url);
+        } else {
+          flip.classList.add("flipped");
+          flip.style.height = back.scrollHeight + "px";
+          sizeChanged();
+        }
+      });
+      return;
+    }
+
+    // "card" (default), "spin", and "scratch-reveal" all share the exact
+    // same populated strip -- content visible immediately, never gated --
+    // spin/scratch-reveal only add decoration/interaction on TOP of it.
+    document.getElementById("sp-text").textContent = s.text;
+    var logo = document.getElementById("sp-logo");
+    // Added BEFORE fillLogo (not after): fillLogo reads logo.className
+    // once, synchronously, to preserve non-logo classes across its own
+    // later reassignment (including from an async img.onload) -- adding
+    // this after the call would be invisible to that snapshot and get
+    // wiped the moment a real logo image finishes loading.
+    if (SPONSOR_TEMPLATE === "spin") {
+      // Force the animation to (re)play exactly once per real render --
+      // removing the class first (+ a reflow) matters if this is a second
+      // renderOnce on an already-spun logo; classList.add alone would be
+      // a no-op and never restart a CSS animation on a class that's
+      // already present. Added BEFORE fillLogo, not after (see fillLogo's
+      // own comment on why an async img.onload needs this to already be
+      // there to preserve it across its own className reassignment). No
+      // animationend hook -- decorative, plays once, then stays settled;
+      // it must never gate or vary the offer (LUL-54's guardrail).
+      logo.classList.remove("lw-logo-spin");
+      void logo.offsetWidth;
+      logo.classList.add("lw-logo-spin");
+    }
+    fillLogo(logo, brandWord, s);
+    var strip = document.getElementById("strip");
+    strip.classList.add("show");
+    fireImpressionBeacon(strip, s);
     strip.addEventListener("click", function () { openLink(s.url); });
+
+    if (SPONSOR_TEMPLATE === "scratch-reveal") {
+      setupScratchReveal(strip);
+    }
+  }
+
+  var SCRATCH_AUTO_REVEAL_MS = 3000;
+  var SCRATCH_CLEAR_THRESHOLD = 0.55;
+
+  function setupScratchReveal(strip) {
+    var canvas = document.getElementById("scratch-canvas");
+    var ctx = canvas.getContext && canvas.getContext("2d");
+    if (!ctx) return; // no canvas support -- offer is already fully visible above, fail open
+    var rect = strip.getBoundingClientRect();
+    canvas.width = rect.width || strip.offsetWidth;
+    canvas.height = rect.height || strip.offsetHeight;
+    canvas.style.display = "block";
+
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "rgba(35,32,28,0.96)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.font = "600 11px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Scratch to reveal", canvas.width / 2, canvas.height / 2 + 4);
+
+    var scratching = false, cleared = 0, revealed = false;
+    var totalPixels = canvas.width * canvas.height;
+
+    function reveal() {
+      if (revealed) return;
+      revealed = true;
+      canvas.style.display = "none";
+    }
+    function scratchAt(x, y) {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.beginPath();
+      ctx.arc(x, y, 16, 0, Math.PI * 2);
+      ctx.fill();
+      cleared += Math.PI * 16 * 16;
+      if (cleared / totalPixels > SCRATCH_CLEAR_THRESHOLD) reveal();
+    }
+    function posFromEvent(e) {
+      var r = canvas.getBoundingClientRect();
+      var p = e.touches ? e.touches[0] : e;
+      return { x: p.clientX - r.left, y: p.clientY - r.top };
+    }
+    canvas.addEventListener("pointerdown", function (e) {
+      scratching = true;
+      var p = posFromEvent(e);
+      scratchAt(p.x, p.y);
+    });
+    canvas.addEventListener("pointermove", function (e) {
+      if (!scratching) return;
+      var p = posFromEvent(e);
+      scratchAt(p.x, p.y);
+    });
+    window.addEventListener("pointerup", function () { scratching = false; });
+    // `strip` itself is one big click-to-navigate target (see
+    // renderSponsored above) -- without this, a scratch tap's own
+    // click event would bubble straight through the canvas to that
+    // handler and navigate away before anything was ever revealed.
+    // Stops mattering once revealed: the canvas is hidden by then, so
+    // it's no longer in the click path at all.
+    canvas.addEventListener("click", function (e) {
+      if (!revealed) e.stopPropagation();
+    });
+
+    // Binding guardrail: reveal is guaranteed regardless of interaction --
+    // this is a reveal ANIMATION, never gated content. The offer underneath
+    // is already fully rendered and click-through works on it the whole
+    // time (the canvas only visually covers it, .lw-strip's own click
+    // handler is on `strip`, not the canvas, so scratching never blocks it).
+    setTimeout(reveal, SCRATCH_AUTO_REVEAL_MS);
   }
 
   var RENDERERS = {
@@ -671,14 +923,24 @@ def result_widget_html(
     template: str,
     mapping: dict | None = None,
     body_html: str | None = None,
+    sponsor_template: str = "card",
 ) -> str:
     """Builds the self-contained widget HTML for one tool: the shared frame
     with this tool's template + mapping substituted in. Exposed separately
     from registration for tests and snapshotting.
+
+    `sponsor_template` picks the SPONSORED strip's own visual format (see
+    `SPONSOR_TEMPLATES`) -- independent of `template`, which is this
+    result widget's own body layout. Raises `ValueError` on an
+    unrecognized value, same shape as `template`'s own validation.
     """
     if template not in TEMPLATES:
         raise ValueError(
             f"unknown template {template!r} -- expected one of {', '.join(TEMPLATES)}"
+        )
+    if sponsor_template not in SPONSOR_TEMPLATES:
+        raise ValueError(
+            f"unknown sponsor_template {sponsor_template!r} -- expected one of {', '.join(SPONSOR_TEMPLATES)}"
         )
     config: dict = {"mapping": mapping or {}}
     if body_html:
@@ -688,6 +950,7 @@ def result_widget_html(
         FRAME_HTML
         .replace(_CONFIG_PLACEHOLDER, _escape_html(config_json))
         .replace(_TEMPLATE_PLACEHOLDER, template)
+        .replace(_SPONSOR_TEMPLATE_PLACEHOLDER, sponsor_template)
     )
 
 
@@ -701,6 +964,7 @@ def register_result_widget(
     body_html: str | None = None,
     resource_uri: str | None = None,
     visibility: list | None = None,
+    sponsor_template: str = "card",
 ):
     """Registers a predefined result widget for ``tool`` and attaches it.
 
@@ -709,7 +973,10 @@ def register_result_widget(
     is patched in place, deliberately overriding ``enable_lulu_ads``'s
     generic sponsored-card widget for this tool. The sponsored DATA field
     still flows from the middleware and renders inside this widget as the
-    fixed disclosed strip.
+    disclosed strip -- ``sponsor_template`` picks that strip's own visual
+    format from ``SPONSOR_TEMPLATES`` (independent of ``template``, this
+    widget's own body layout); defaults to ``"card"``, the original
+    always-visible strip every existing integrator already gets.
 
     Also returns the AppConfig, so passing ``app=`` explicitly at
     registration time keeps working for integrators who prefer that order::
@@ -725,7 +992,9 @@ def register_result_widget(
 
     uri = resource_uri or f"ui://lulu-ads/result-{tool}.html"
     domain = claude_apps_domain(endpoint_url)
-    html = result_widget_html(template=template, mapping=mapping, body_html=body_html)
+    html = result_widget_html(
+        template=template, mapping=mapping, body_html=body_html, sponsor_template=sponsor_template,
+    )
 
     # MCP Apps hosts apply a default CSP of img-src 'self' data: — the
     # rendered-impression beacon (a 1px <img> to ads.getlulu.dev) is

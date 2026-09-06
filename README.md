@@ -189,6 +189,20 @@ the rendered-impression beacon (impressions count what a human actually
 saw, never mere API output). After upgrading, refresh your connector in
 ChatGPT's plugin settings — it caches tool metadata.
 
+**The SPONSORED strip's own format is separately configurable** via
+`sponsor_template=` (independent of `template=`, this widget's own body
+layout):
+
+```python
+register_result_widget(
+    mcp, "search_flights",
+    template="table-card",
+    mapping={"rows": "flights", "columns": [...]},
+    endpoint_url="https://my-server.example.com/mcp",
+    sponsor_template="flip-card",  # or "spin", "scratch-reveal" -- "card" is the default
+)
+```
+
 ## Supported hosts
 
 The plain `sponsored` JSON field is the always-on baseline: it ships on
@@ -664,6 +678,28 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.11** — `register_result_widget()`/`registerResultWidget()` gain
+  `sponsor_template=`/`sponsorTemplate:` (LUL-69): the SPONSORED strip built
+  into a result widget's footer (`stat-card`/`table-card`/`notice-card`/
+  `carousel-card` — a publisher's own tool output, not the standalone
+  sponsor-card widget) can now pick a visual format too, independent of
+  `template=`, this widget's own body layout. `"card"` (default) is the
+  original always-visible strip. `"flip-card"` is a compact "Sponsored"
+  teaser that crossfades to reveal the real offer on tap — the front
+  face carries an actual prompt ("Tap to reveal →"), not just a bare
+  disclosure label, so there's a reason to tap it. `"spin"` is a
+  decorative spin-settle flourish on the logo badge, content visible
+  immediately, never gated (no variable outcomes — see the spin
+  guardrail below). `"scratch-reveal"` is a canvas scratch-off layer,
+  auto-revealing after 3s regardless of interaction — the offer
+  underneath is identical whether or not anyone scratches. `"banner"`/
+  `"hero"` are deliberately not offered here: this strip is already one
+  horizontal row (banner would be a no-op) and a full-bleed background
+  doesn't fit a slim footer bar. This is a different system from the
+  standalone sponsor-card gallery above (`register_sponsored_widget()`'s
+  own `template=`) — same template *names* where they overlap, ported
+  into this frame's own vanilla-JS renderer rather than sharing code,
+  since the two frames are independent implementations by design.
 - **0.9.10** — Four more templates: `"flip-card"` (LUL-53, a CSS 3D flip on
   tap revealing the offer on the back face — front always shows the
   disclosed label first, never hides *what* this is, only the offer

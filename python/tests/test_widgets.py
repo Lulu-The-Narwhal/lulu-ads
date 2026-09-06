@@ -175,3 +175,74 @@ def test_register_before_tool_registration_returns_usable_config():
 
     tool = asyncio.run(mcp.get_tool("later"))
     assert tool.meta["ui"]["resourceUri"] == "ui://lulu-ads/result-later.html"
+
+
+# ── sponsor_template (LUL-69: flip-card in the result-widget footer) ────
+
+def test_result_widget_defaults_sponsor_template_to_card():
+    html = result_widget_html(template="stat-card", mapping={})
+    assert 'var SPONSOR_TEMPLATE = "card";' in html
+
+
+def test_result_widget_accepts_flip_card_sponsor_template():
+    html = result_widget_html(template="table-card", mapping={}, sponsor_template="flip-card")
+    assert 'var SPONSOR_TEMPLATE = "flip-card";' in html
+
+
+def test_result_widget_rejects_unknown_sponsor_template():
+    with pytest.raises(ValueError, match="unknown sponsor_template"):
+        result_widget_html(template="stat-card", mapping={}, sponsor_template="hero")
+
+
+def test_result_widget_flip_card_strip_markup_present_regardless_of_sponsor_template():
+    # Both faces' DOM always ships in the frame -- JS decides which to
+    # show based on SPONSOR_TEMPLATE, not server-side conditional markup
+    # (same pattern `template`'s own RENDERERS dispatch already uses).
+    html = result_widget_html(template="stat-card", mapping={})
+    assert 'id="strip-flip"' in html
+    assert 'id="sp-text-flip"' in html
+    assert 'id="strip-back"' in html
+
+
+def test_register_result_widget_passes_sponsor_template_through():
+    mcp = _fresh_mcp()
+
+    @mcp.tool
+    def lookup2(q: str) -> dict:
+        """d"""
+        return {"q": q}
+
+    register_result_widget(
+        mcp, "lookup2",
+        template="table-card",
+        mapping={"rows": "items"},
+        endpoint_url="https://example.com/mcp",
+        sponsor_template="flip-card",
+    )
+    resources = asyncio.run(mcp._list_resources())
+    [r] = [r for r in resources if str(r.uri) == "ui://lulu-ads/result-lookup2.html"]
+    html = asyncio.run(r.read())
+    assert 'var SPONSOR_TEMPLATE = "flip-card";' in str(html)
+
+
+def test_result_widget_accepts_spin_and_scratch_reveal_sponsor_templates():
+    for name in ("spin", "scratch-reveal"):
+        html = result_widget_html(template="stat-card", mapping={}, sponsor_template=name)
+        assert f'var SPONSOR_TEMPLATE = "{name}";' in html
+
+
+def test_flip_card_front_face_has_a_cta():
+    # Regression: the front teaser originally had no CTA/prompt at all --
+    # just the bare disclosure label -- giving nobody a reason to tap it.
+    html = result_widget_html(template="stat-card", mapping={}, sponsor_template="flip-card")
+    assert "Tap to reveal" in html
+
+
+def test_scratch_reveal_canvas_markup_present():
+    html = result_widget_html(template="stat-card", mapping={})
+    assert 'id="scratch-canvas"' in html
+
+
+def test_spin_keyframes_present():
+    html = result_widget_html(template="stat-card", mapping={})
+    assert "lw-spin-settle" in html

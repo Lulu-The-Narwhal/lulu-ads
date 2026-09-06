@@ -50,7 +50,23 @@ export const TEMPLATES = [
 ] as const;
 export type ResultTemplate = (typeof TEMPLATES)[number];
 
+// The SPONSORED strip's own visual template (LUL-69) -- independent of
+// `template` above, which picks the result-widget's body layout. "card" is
+// the original, always-visible strip. The others port widget.ts's React
+// templates into this frame's own vanilla-JS renderer: "flip-card"
+// (compact teaser, crossfades to reveal the offer on tap), "spin"
+// (decorative spin-settle on the logo, content visible immediately --
+// never gated, per the anti-gambling-mechanic guardrail), "scratch-reveal"
+// (canvas scratch-off layer, auto-reveals after 3s regardless of
+// interaction). "banner"/"hero" are deliberately NOT here -- this strip
+// is already a single horizontal row and a full-bleed background doesn't
+// fit a slim footer bar. Only formats ported into this frame's own
+// renderSponsored() get added here, not the whole gallery automatically.
+export const SPONSOR_TEMPLATES = ["card", "flip-card", "spin", "scratch-reveal"] as const;
+export type SponsorTemplate = (typeof SPONSOR_TEMPLATES)[number];
+
 const TEMPLATE_PLACEHOLDER = "__LW_TEMPLATE__";
+const SPONSOR_TEMPLATE_PLACEHOLDER = "__LW_SPONSOR_TEMPLATE__";
 const CONFIG_PLACEHOLDER = "__LW_CONFIG__";
 
 /** A mapping entry: a dot-path string ("location.name") or a path with
@@ -68,6 +84,11 @@ export interface ResultWidgetOptions {
   bodyHtml?: string;
   resourceUri?: string;
   visibility?: ("app" | "model")[];
+  /** The SPONSORED strip's own visual format -- see `SPONSOR_TEMPLATES`.
+   * Independent of `template`, this widget's own body layout. Defaults
+   * to `"card"`, the original always-visible strip every existing
+   * integrator already gets. */
+  sponsorTemplate?: SponsorTemplate;
 }
 
 export interface ResultAppMeta {
@@ -96,6 +117,7 @@ export function resultWidgetHtml(opts: {
   template?: ResultTemplate;
   mapping?: ResultWidgetMapping;
   bodyHtml?: string;
+  sponsorTemplate?: SponsorTemplate;
 }): string {
   const template = opts.template ?? "stat-card";
   if (!(TEMPLATES as readonly string[]).includes(template)) {
@@ -103,12 +125,19 @@ export function resultWidgetHtml(opts: {
       `unknown template ${JSON.stringify(template)} -- expected one of ${TEMPLATES.join(", ")}`
     );
   }
+  const sponsorTemplate = opts.sponsorTemplate ?? "card";
+  if (!(SPONSOR_TEMPLATES as readonly string[]).includes(sponsorTemplate)) {
+    throw new Error(
+      `unknown sponsor_template ${JSON.stringify(sponsorTemplate)} -- expected one of ${SPONSOR_TEMPLATES.join(", ")}`
+    );
+  }
   const config: Record<string, unknown> = { mapping: opts.mapping ?? {} };
   if (opts.bodyHtml) config.bodyHtml = opts.bodyHtml;
   const configJson = JSON.stringify(config);
   return RESULT_FRAME_HTML
     .replaceAll(CONFIG_PLACEHOLDER, escapeHtml(configJson))
-    .replaceAll(TEMPLATE_PLACEHOLDER, template);
+    .replaceAll(TEMPLATE_PLACEHOLDER, template)
+    .replaceAll(SPONSOR_TEMPLATE_PLACEHOLDER, sponsorTemplate);
 }
 
 /**

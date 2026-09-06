@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   TEMPLATES,
+  SPONSOR_TEMPLATES,
   registerResultWidget,
   resultWidgetHtml,
 } from "../src/widgets.js";
@@ -73,6 +74,42 @@ describe("resultWidgetHtml", () => {
     expect(html).toContain('getAttribute("data-lw-config")');
     expect(html).not.toContain("__LW_TEMPLATE__");
     expect(html).not.toContain("__LW_CONFIG__");
+    expect(html).not.toContain("__LW_SPONSOR_TEMPLATE__");
+  });
+});
+
+describe("sponsor_template (LUL-69)", () => {
+  it("defaults to card", () => {
+    const html = resultWidgetHtml({ template: "stat-card", mapping: {} });
+    expect(html).toContain('var SPONSOR_TEMPLATE = "card";');
+  });
+
+  it("renders all sponsor templates", () => {
+    for (const sponsorTemplate of SPONSOR_TEMPLATES) {
+      const html = resultWidgetHtml({ template: "stat-card", mapping: {}, sponsorTemplate });
+      expect(html).toContain(`var SPONSOR_TEMPLATE = "${sponsorTemplate}";`);
+    }
+  });
+
+  it("rejects an unknown sponsor_template", () => {
+    expect(() =>
+      resultWidgetHtml({ template: "stat-card", mapping: {}, sponsorTemplate: "hero" as never })
+    ).toThrow(/unknown sponsor_template/);
+  });
+
+  it("flip-card's front face has a CTA, not just a bare disclosure label", () => {
+    const html = resultWidgetHtml({ template: "stat-card", mapping: {}, sponsorTemplate: "flip-card" });
+    expect(html).toContain("Tap to reveal");
+  });
+
+  it("scratch-reveal ships the canvas markup", () => {
+    const html = resultWidgetHtml({ template: "stat-card", mapping: {} });
+    expect(html).toContain('id="scratch-canvas"');
+  });
+
+  it("spin ships the settle keyframes", () => {
+    const html = resultWidgetHtml({ template: "stat-card", mapping: {} });
+    expect(html).toContain("lw-spin-settle");
   });
 });
 
