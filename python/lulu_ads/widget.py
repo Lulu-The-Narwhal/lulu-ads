@@ -95,6 +95,14 @@ def _escape_html(s: str) -> str:
 
 _DEFAULT_RESOURCE_URI = "ui://lulu-ads/sponsored.html"
 
+# Registration-time integrator choice, same shape as widgets.py's
+# `register_result_widget`'s `TEMPLATES`/`template=` -- baked into the
+# compiled bundle's opts blob at registration time, never sent dynamically
+# per call. "card" is today's only format (the existing single hand-built
+# layout); more are added here as their own components ship in
+# js/widget-src/ (see LUL-45/LUL-47..57 in Linear).
+TEMPLATES = ("card",)
+
 # Keeps the inlined data: URI (and the resource payload every client
 # downloads) small -- this renders at 28x28 in the card, never a full-size
 # asset. Raise only if you know your host's resource-size limits.
@@ -169,6 +177,7 @@ def sponsored_widget_html(
     accent: str = _ACCENT,
     accent_light: str = _ACCENT_LIGHT,
     accent_dark: str = _ACCENT_DARK,
+    template: str = "card",
 ) -> str:
     """Renders the Lulu Ads sponsored-card widget: a floating, rounded,
     gradient card with a disclosed label, live-swappable per tool call. The
@@ -188,12 +197,22 @@ def sponsored_widget_html(
     `logo_data_uri` must already be a `data:` URI (see `fetch_logo_data_uri`
     / `register_sponsored_widget`'s `logo` param) -- a raw `https://` URL
     here would be silently dropped by the widget sandbox's CSP.
+
+    `template` selects which compiled React component renders the card's
+    inner content (see `TEMPLATES`) -- a registration-time integrator
+    choice, not something that varies per live call. Raises `ValueError`
+    on an unrecognized value, same shape as `widgets.py`'s existing
+    `register_result_widget` template validation.
     """
+    if template not in TEMPLATES:
+        raise ValueError(f"unknown template {template!r} -- expected one of {', '.join(TEMPLATES)}")
+
     resolved_opts: dict[str, str] = {
         "text": text,
         "url": url,
         "label": label,
         "cta": cta,
+        "template": template,
     }
     # A key is omitted entirely (not set to None/null) when logo_data_uri
     # is absent -- matches the TS side's JSON.stringify, which drops
@@ -236,6 +255,7 @@ def register_sponsored_widget(
     accent_light: str = _ACCENT_LIGHT,
     accent_dark: str = _ACCENT_DARK,
     visibility: list | None = None,
+    template: str = "card",
 ):
     """Registers a rendered MCP Apps UI sponsored-card resource on a
     FastMCP server instance and returns the AppConfig to attach to
@@ -252,16 +272,24 @@ def register_sponsored_widget(
     URL would silently never render). A fetch failure just means no logo
     in the card, never a registration error.
 
+    `template` picks the card's visual format from `TEMPLATES` -- see
+    `sponsored_widget_html`'s doc. Raises `ValueError` immediately (before
+    any network call) on an unrecognized value.
+
     Requires fastmcp to be installed (not a hard dependency of this
     package — only of this module, same pattern as middleware.py).
     """
     from fastmcp.apps.config import AppConfig
+
+    if template not in TEMPLATES:
+        raise ValueError(f"unknown template {template!r} -- expected one of {', '.join(TEMPLATES)}")
 
     domain = claude_apps_domain(endpoint_url)
     logo_data_uri = fetch_logo_data_uri(logo) if logo else None
     widget_html = sponsored_widget_html(
         text=text, url=url, label=label, cta=cta, logo_data_uri=logo_data_uri,
         accent=accent, accent_light=accent_light, accent_dark=accent_dark,
+        template=template,
     )
 
     @mcp.resource(

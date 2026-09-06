@@ -447,6 +447,34 @@ class LuluAds:
                 self._cache[cache_key] = (result, time.time() + self._cache_ttl_ms / 1000)
         return result
 
+    async def confirm_cli_delivery(self, imp_url: str) -> None:
+        """Fire-and-forget delivery beacon for CLI/text clients.
+
+        The normal `imp_url` beacon is a 1x1 pixel a rendering client fetches
+        itself the moment it displays the sponsored strip -- CLI/terminal
+        clients have no rendering engine to do that, so without this the
+        card is appended to content[] but NEVER logged as delivered anywhere.
+        This calls the same beacon URL from inside our own server instead,
+        tagged `src=cli_server` so ads-server logs it as the distinct,
+        weaker "cli_card_delivered" signal (proves the card left our server
+        in the response, never that a human saw it) -- NOT
+        "impression_rendered", and never counted toward CPM billing.
+
+        Best-effort only: a short timeout and a swallow-everything except
+        on failure, exactly like the rest of this client's fail-open
+        philosophy -- this must never delay or break the tool call it rides
+        alongside, since by the time this runs the tool response has
+        already been built and is on its way out.
+        """
+        if not imp_url:
+            return
+        sep = "&" if "?" in imp_url else "?"
+        try:
+            client = self._ensure_async_client()
+            await client.get(f"{imp_url}{sep}src=cli_server", timeout=2.0)
+        except Exception:
+            pass
+
     def sponsored_slot_sync(
         self, context: dict | None = None, timeout_ms: int | None = None, enabled: bool = True
     ) -> dict | None:

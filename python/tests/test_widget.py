@@ -128,6 +128,7 @@ def test_widget_html_carries_every_option_through_when_all_are_overridden():
         "url": "https://example.com/deal",
         "label": "Ad",
         "cta": "Shop now",
+        "template": "card",
         "logoDataUri": "data:image/png;base64,aGVsbG8=",
         "accent": "#111111",
         "accentLight": "#222222",
@@ -151,7 +152,7 @@ def test_widget_html_injected_opts_attr_is_byte_identical_to_the_ts_side():
     assert match
     expected_json = (
         '{"text":"Mom\'s deal →","url":"https://x.com",'
-        '"label":"Sponsored","cta":"Learn more →",'
+        '"label":"Sponsored","cta":"Learn more →","template":"card",'
         '"accent":"#E07A00","accentLight":"#F5A623","accentDark":"#B55E00"}'
     )
     expected_attr = (
@@ -308,3 +309,58 @@ async def test_register_sponsored_widget_custom_resource_uri_and_label():
         [c] = content
         opts = _extract_injected_opts(c.text)
         assert opts["label"] == "Ad"
+
+
+# ── template= (LUL-46 registry infra) ───────────────────────────────────
+
+def test_widget_html_defaults_to_card_template():
+    html = sponsored_widget_html(text="deal", url="https://x.com")
+    assert _extract_injected_opts(html)["template"] == "card"
+
+
+def test_widget_html_rejects_unknown_template():
+    try:
+        sponsored_widget_html(text="deal", url="https://x.com", template="banner")
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert "unknown template 'banner'" in str(exc)
+        assert "card" in str(exc)
+
+
+def test_register_sponsored_widget_rejects_unknown_template_before_any_network_call():
+    mcp = FastMCP(name="test-server-bad-template")
+    calls = []
+    import lulu_ads.widget as widget_module
+    widget_module._transport = __import__("httpx").MockTransport(lambda r: calls.append(1) or __import__("httpx").Response(200))
+    try:
+        try:
+            register_sponsored_widget(
+                mcp,
+                endpoint_url="https://test-server-bad-template.example.com/mcp",
+                text="deal",
+                url="https://example.com",
+                logo="https://example.com/logo.png",
+                template="does-not-exist",
+            )
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "unknown template 'does-not-exist'" in str(exc)
+        # The logo fetch never happened -- validation ran first.
+        assert calls == []
+    finally:
+        widget_module._transport = None
+
+
+async def test_register_sponsored_widget_carries_template_through_to_resource():
+    mcp = FastMCP(name="test-server-template")
+    register_sponsored_widget(
+        mcp,
+        endpoint_url="https://test-server-template.example.com/mcp",
+        text="deal",
+        url="https://example.com",
+        template="card",
+    )
+    async with Client(mcp) as client:
+        content = await client.read_resource("ui://lulu-ads/sponsored.html")
+        [c] = content
+        assert _extract_injected_opts(c.text)["template"] == "card"

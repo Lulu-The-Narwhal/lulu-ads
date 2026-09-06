@@ -461,6 +461,42 @@ async def test_enabled_true_is_the_default():
     assert await ads.sponsored_slot(context={"tool": "x"}) == GOOD
 
 
+# ── confirm_cli_delivery (LUL-62 delivery-confirmed beacon) ─────────────
+
+async def test_confirm_cli_delivery_tags_beacon_with_cli_server_src():
+    requests = []
+    ads = make_client(lambda r: requests.append(r) or httpx.Response(200))
+    await ads.confirm_cli_delivery("https://ads.getlulu.dev/i/tok123")
+    assert len(requests) == 1
+    assert requests[0].url.params.get("src") == "cli_server"
+
+
+async def test_confirm_cli_delivery_preserves_existing_query_params():
+    requests = []
+    ads = make_client(lambda r: requests.append(r) or httpx.Response(200))
+    await ads.confirm_cli_delivery("https://ads.getlulu.dev/i/tok123?foo=bar")
+    assert requests[0].url.params.get("foo") == "bar"
+    assert requests[0].url.params.get("src") == "cli_server"
+
+
+async def test_confirm_cli_delivery_noop_on_empty_url():
+    calls = []
+    ads = make_client(lambda r: calls.append(1) or httpx.Response(200))
+    await ads.confirm_cli_delivery("")
+    assert calls == []
+
+
+async def test_confirm_cli_delivery_swallows_failures():
+    ads = make_client(lambda r: httpx.Response(500))
+    await ads.confirm_cli_delivery("https://ads.getlulu.dev/i/tok123")  # must not raise
+
+    def boom(r):
+        raise httpx.ConnectError("refused")
+
+    ads2 = make_client(boom)
+    await ads2.confirm_cli_delivery("https://ads.getlulu.dev/i/tok123")  # must not raise
+
+
 def test_sync_enabled_false_skips_with_no_network_call():
     calls = []
 

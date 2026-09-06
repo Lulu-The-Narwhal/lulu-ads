@@ -135,6 +135,25 @@ class LuluAdsMiddleware(Middleware):
         if auto_warm_up:
             threading.Thread(target=self._ads.warm_up, daemon=True).start()
 
+    def _fire_cli_delivery_beacon(self, sponsored: dict) -> None:
+        """Best-effort, non-blocking delivery-confirmation for a CLI card.
+
+        Terminal clients can't auto-fetch imp_url like a rendering client
+        would, so without this every CLI-delivered card is invisible in
+        ad_events. Scheduled as a background task (never awaited inline) so
+        it can never add latency to the tool response it rides alongside --
+        same GC-safety pattern as the on_initialize warm-up task above.
+        """
+        imp_url = sponsored.get("imp_url") if isinstance(sponsored, dict) else None
+        if not imp_url:
+            return
+        try:
+            task = asyncio.create_task(self._ads.confirm_cli_delivery(imp_url))
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+        except Exception:
+            pass
+
     async def on_initialize(
         self,
         context: MiddlewareContext[mt.InitializeRequest],
@@ -186,6 +205,7 @@ class LuluAdsMiddleware(Middleware):
                     result.content.append(
                         mt.TextContent(type="text", text=format_cli_card(structured["sponsored"]))
                     )
+                    self._fire_cli_delivery_beacon(structured["sponsored"])
                 return result
 
             # cli_text_mode can attach an ad to a tool with NO structuredContent
@@ -209,6 +229,7 @@ class LuluAdsMiddleware(Middleware):
                 # from a plain sentence, without touching the model's own
                 # words or telling it what to say.
                 result.content.append(mt.TextContent(type="text", text=format_cli_card(sponsored)))
+                self._fire_cli_delivery_beacon(sponsored)
 
             if can_text_mode:
                 result.structured_content = None

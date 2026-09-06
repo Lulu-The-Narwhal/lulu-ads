@@ -10,6 +10,7 @@ from lulu_ads import LuluAds
 from lulu_ads.middleware import LuluAdsMiddleware
 
 GOOD = {"label": "Sponsored", "text": "Lulu Ads", "url": "https://ads.getlulu.dev/c/x"}
+GOOD_WITH_IMP = {**GOOD, "imp_url": "https://ads.getlulu.dev/i/tok123"}
 CLAUDE_CODE = mt.Implementation(name="claude-code", version="2.1.212")
 
 
@@ -231,6 +232,98 @@ async def test_cli_client_gets_card_for_tool_preset_sponsored():
     # Never re-fetched or overwritten -- the tool's own choice is final.
     assert calls == []
     assert result.structured_content["sponsored"]["label"] == "Insurance"
+
+
+async def test_cli_client_fires_delivery_beacon_with_imp_url():
+    # LUL-62: CLI clients can't auto-fetch imp_url like a rendering client
+    # would, so without a server-side beacon a CLI-delivered card is
+    # invisible in ad_events. The middleware must fire it itself, tagged
+    # src=cli_server so ads-server logs a distinct "cli_card_delivered"
+    # event rather than conflating it with pixel-confirmed impressions.
+    from lulu_ads.middleware import _background_tasks
+
+    beacon_requests = []
+
+    def handler(r: httpx.Request):
+        if r.method == "GET" and "/i/tok123" in str(r.url):
+            beacon_requests.append(r)
+            return httpx.Response(200)
+        return httpx.Response(200, json=GOOD_WITH_IMP)
+
+    mw = make_middleware(handler)
+    async with Client(make_server(mw), client_info=CLAUDE_CODE) as client:
+        await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
+    if _background_tasks:
+        await asyncio.gather(*list(_background_tasks))
+
+    assert len(beacon_requests) == 1
+    assert beacon_requests[0].url.params.get("src") == "cli_server"
+
+
+async def test_cli_client_skips_beacon_when_no_imp_url():
+    # GOOD (no imp_url) is what ads-server returns when nothing needs
+    # delivery confirmation for this slot -- must not synthesize a beacon
+    # call out of nothing.
+    from lulu_ads.middleware import _background_tasks
+
+    calls = []
+    mw = make_middleware(lambda r: calls.append(r) or httpx.Response(200, json=GOOD))
+    async with Client(make_server(mw), client_info=CLAUDE_CODE) as client:
+        await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
+    if _background_tasks:
+        await asyncio.gather(*list(_background_tasks))
+
+    assert all(r.method != "GET" for r in calls)
+
+
+async def test_non_cli_client_never_fires_delivery_beacon():
+    from lulu_ads.middleware import _background_tasks
+
+    calls = []
+    mw = make_middleware(lambda r: calls.append(r) or httpx.Response(200, json=GOOD_WITH_IMP))
+    async with Client(make_server(mw)) as client:  # not claude-code
+        await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
+    if _background_tasks:
+        await asyncio.gather(*list(_background_tasks))
+
+    assert all(r.method != "GET" for r in calls)
+
+
+async def test_cli_client_fires_delivery_beacon_for_tool_preset_sponsored():
+    # Same beacon must fire on the OTHER is_cli card-append site: a tool
+    # that sets its own `sponsored` field (see test_cli_client_gets_card_
+    # for_tool_preset_sponsored above) rather than the middleware's own
+    # fetched slot.
+    from lulu_ads.middleware import _background_tasks
+
+    beacon_requests = []
+    OWN_SPONSORED_WITH_IMP = {
+        "label": "Insurance", "text": "Trip insurance",
+        "url": "https://ads.getlulu.dev/c/y", "imp_url": "https://ads.getlulu.dev/i/tok456",
+    }
+
+    def handler(r: httpx.Request):
+        if r.method == "GET" and "/i/tok456" in str(r.url):
+            beacon_requests.append(r)
+        return httpx.Response(200)
+
+    mcp = FastMCP(name="preset-test-server")
+
+    @mcp.tool
+    def preset_sponsored_tool() -> dict:
+        return {"flights": [{"price": 520}], "sponsored": OWN_SPONSORED_WITH_IMP}
+
+    mw = LuluAdsMiddleware(publisher_id="pub_1", api_key="lk_x", auto_warm_up=False)
+    mw._ads._transport = httpx.MockTransport(handler)
+    mcp.add_middleware(mw)
+
+    async with Client(mcp, client_info=CLAUDE_CODE) as client:
+        await client.call_tool("preset_sponsored_tool", {})
+    if _background_tasks:
+        await asyncio.gather(*list(_background_tasks))
+
+    assert len(beacon_requests) == 1
+    assert beacon_requests[0].url.params.get("src") == "cli_server"
 
 
 async def test_non_cli_client_gets_no_card_for_tool_preset_sponsored():

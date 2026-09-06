@@ -116,6 +116,7 @@ test("sponsoredWidgetHtml carries every option through when all are overridden",
     url: "https://example.com/deal",
     label: "Ad",
     cta: "Shop now",
+    template: "card",
     logoDataUri: "data:image/png;base64,aGVsbG8=",
     accent: "#111111",
     accentLight: "#222222",
@@ -213,4 +214,46 @@ test("registerSponsoredWidget still registers when the logo fetch fails", async 
   const opts = extractInjectedOpts(result.contents[0].text);
   expect(opts.logoDataUri).toBeUndefined();
   expect(opts.text).toBe("Save 15%");
+});
+
+// ── template (LUL-46 registry infra) ────────────────────────────────────
+
+test("sponsoredWidgetHtml defaults to the card template", () => {
+  const html = sponsoredWidgetHtml({ text: "deal", url: "https://example.com" });
+  expect(extractInjectedOpts(html).template).toBe("card");
+});
+
+test("sponsoredWidgetHtml rejects an unknown template", () => {
+  expect(() =>
+    sponsoredWidgetHtml({ text: "deal", url: "https://example.com", template: "banner" as any })
+  ).toThrow(/unknown template "banner".*card/);
+});
+
+test("registerSponsoredWidget rejects an unknown template before any network call", async () => {
+  const fetchSpy = vi.fn();
+  vi.stubGlobal("fetch", fetchSpy);
+  const server = new McpServer({ name: "s-bad-template", version: "0" });
+  await expect(
+    registerSponsoredWidget(server, {
+      endpointUrl: "https://my-server.example.com/mcp",
+      text: "deal",
+      url: "https://example.com",
+      logo: "https://example.com/logo.png",
+      template: "does-not-exist" as any,
+    })
+  ).rejects.toThrow(/unknown template "does-not-exist"/);
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
+
+test("registerSponsoredWidget carries template through to the resource", async () => {
+  const server = new McpServer({ name: "s-template", version: "0" });
+  await registerSponsoredWidget(server, {
+    endpointUrl: "https://my-server.example.com/mcp",
+    text: "deal",
+    url: "https://example.com",
+    template: "card",
+  });
+  const client = await connectedPair(server);
+  const result: any = await client.readResource({ uri: "ui://lulu-ads/sponsored.html" });
+  expect(extractInjectedOpts(result.contents[0].text).template).toBe("card");
 });

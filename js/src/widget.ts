@@ -70,6 +70,14 @@ import { WIDGET_BUNDLE_HTML } from "./generatedWidgetBundle.js";
 const DEFAULT_RESOURCE_URI = "ui://lulu-ads/sponsored.html";
 const OPTS_PLACEHOLDER = "__LULU_ADS_OPTS__";
 
+// Registration-time integrator choice, same shape as widgets.ts's
+// registerResultWidget's TEMPLATES/template -- baked into the compiled
+// bundle's opts blob at registration time, never sent dynamically per
+// call. "card" is today's only format; more are added here as their own
+// components ship in js/widget-src/ (see LUL-45/LUL-47..57 in Linear).
+export const TEMPLATES = ["card"] as const;
+export type Template = (typeof TEMPLATES)[number];
+
 // Keeps the inlined data: URI (and the resource payload every client
 // downloads) small -- this renders at 28x28 in the card, never a full-size
 // asset. Raise only if you know your host's resource-size limits.
@@ -138,6 +146,10 @@ export interface SponsoredWidgetOptions {
   accent?: string;
   accentLight?: string;
   accentDark?: string;
+  /** Card visual format -- see `TEMPLATES`. Defaults to `"card"`, today's
+   * only format. Registration-time integrator choice, not a per-call
+   * value. */
+  template?: Template;
 }
 
 /** Renders the Lulu Ads sponsored-card widget: a floating, rounded,
@@ -163,7 +175,12 @@ export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
     accent = ACCENT,
     accentLight = ACCENT_LIGHT,
     accentDark = ACCENT_DARK,
+    template = "card",
   } = opts;
+
+  if (!(TEMPLATES as readonly string[]).includes(template)) {
+    throw new Error(`unknown template ${JSON.stringify(template)} -- expected one of ${TEMPLATES.join(", ")}`);
+  }
 
   const resolvedOpts: SponsoredWidgetOptions = {
     text,
@@ -174,6 +191,7 @@ export function sponsoredWidgetHtml(opts: SponsoredWidgetOptions): string {
     accent,
     accentLight,
     accentDark,
+    template,
   };
   // JSON.stringify drops undefined-valued keys (logoDataUri when absent)
   // on its own -- no extra filtering needed to match the old template's
@@ -218,6 +236,11 @@ export async function registerSponsoredWidget(
   server: AnyServer,
   opts: RegisterSponsoredWidgetOptions
 ): Promise<SponsoredAppMeta> {
+  const template = opts.template ?? "card";
+  if (!(TEMPLATES as readonly string[]).includes(template)) {
+    throw new Error(`unknown template ${JSON.stringify(template)} -- expected one of ${TEMPLATES.join(", ")}`);
+  }
+
   const uri = opts.resourceUri ?? DEFAULT_RESOURCE_URI;
   const domain = claudeAppsDomain(opts.endpointUrl);
   const logoDataUri = opts.logo ? (await fetchLogoDataUri(opts.logo)) ?? undefined : undefined;

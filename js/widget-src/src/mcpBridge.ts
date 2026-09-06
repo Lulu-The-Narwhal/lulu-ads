@@ -70,6 +70,11 @@ export interface InitialOptions {
   accent?: string
   accentLight?: string
   accentDark?: string
+  /** Registration-time card format choice (see widget.ts's `TEMPLATES`) --
+   * read once by App.tsx to pick which component renders the card's inner
+   * content. Absent (unbuilt `vite dev` source) or unrecognized both fall
+   * back to "card", the same default `sponsoredWidgetHtml()` applies. */
+  template?: string
 }
 
 /**

@@ -1,7 +1,30 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Card } from "@/components/ui/card"
 import { SponsoredCard, type SponsoredCardState, cardStyle } from "./SponsoredCard"
 import { Footer } from "./Footer"
+
+/**
+ * Template registry (LUL-46): maps a `template` opt value to the component
+ * rendering the card's INNER content for a given state. Every entry gets
+ * the same persistent `<Card style={cardStyle}>` shell + `<Footer />`
+ * wrapping it below (see App's render) -- the disclosed "Sponsored" label
+ * lives inside each template component itself, but the outer gradient card
+ * and "Powered by Lulu Ads" footer are structurally guaranteed by every
+ * template, not something each one has to remember to add (LUL-45's
+ * binding, non-negotiable contract).
+ *
+ * "card" (SponsoredCard) is the only entry today -- new templates land here
+ * as their own components ship (LUL-47..57), never as a separate dispatch
+ * mechanism. An unrecognized/missing `template` value falls back to "card"
+ * rather than rendering nothing, matching widget.py/widget.ts's own
+ * "unknown template" validation happening earlier, at registration time --
+ * by the time this runs, a bad value already would have raised there, so
+ * this fallback only ever matters for the unbuilt `vite dev` case (no
+ * baked-in opts at all) or a bundle/SDK version mismatch.
+ */
+const TEMPLATES: Record<string, (props: { state: SponsoredCardState }) => ReactNode> = {
+  card: SponsoredCard,
+}
 import {
   applyAccentTheme,
   initClickRedirect,
@@ -37,6 +60,7 @@ function App() {
   // see readInitialOptions's doc.
   const [initialOptions] = useState(() => readInitialOptions())
   const [state, setState] = useState<SponsoredCardState>({ kind: "loading" })
+  const Content = TEMPLATES[initialOptions?.template ?? "card"] ?? SponsoredCard
 
   // Guards the one-time loading->settled size-changed resend below so it
   // fires exactly once for that transition, never again on later
@@ -94,7 +118,7 @@ function App() {
       aria-busy={state.kind === "loading"}
       aria-label={state.kind === "loading" ? "Loading sponsored content" : undefined}
     >
-      <SponsoredCard state={state} />
+      <Content state={state} />
       <Footer />
     </Card>
   )
