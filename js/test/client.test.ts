@@ -139,6 +139,18 @@ test("logoUrl absent when the response has none", async () => {
   expect(out).not.toHaveProperty("logoUrl");
 });
 
+test("template present when the response has one", async () => {
+  mockFetch(async () => new Response(JSON.stringify({ ...GOOD, template: "banner" }), { status: 200 }));
+  const out = await ads().sponsoredSlot({ context: { tool: "x" } });
+  expect(out?.template).toBe("banner");
+});
+
+test("template absent when the response has none", async () => {
+  mockFetch(async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const out = await ads().sponsoredSlot({ context: { tool: "x" } });
+  expect(out).not.toHaveProperty("template");
+});
+
 test("fast default times out without prompt", async () => {
   // Steady-state guarantee -- a warmed client, not the exempted first-ever
   // request (see "first request ever gets cold-start headroom" below).

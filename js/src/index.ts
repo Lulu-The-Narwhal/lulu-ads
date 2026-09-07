@@ -30,6 +30,10 @@ export interface Sponsored {
    * the moment the sponsored strip actually shows (CPM counts rendered,
    * never merely returned). */
   impUrl?: string;
+  /** Per-ad template (kin repo's LUL-64) — the widget bundle prefers this
+   * live value over whatever template= the integrator registered with.
+   * See docs/superpowers/specs/2026-09-07-per-ad-template-live-override-design.md. */
+  template?: string;
 }
 
 // Reported to /telemetry/init below -- lets ads-server tell which active
@@ -216,11 +220,12 @@ export class LuluAds {
         signal: AbortSignal.timeout(effectiveTimeoutMs),
       });
       if (res.status !== 200) return null;
-      const body = (await res.json()) as { text?: unknown; url?: unknown; logo_url?: unknown; imp_url?: unknown };
+      const body = (await res.json()) as { text?: unknown; url?: unknown; logo_url?: unknown; imp_url?: unknown; template?: unknown };
       if (!body?.text || !body?.url) return null;
       const result: Sponsored = { label: "Sponsored", text: String(body.text), url: String(body.url) };
       if (body.logo_url) result.logoUrl = String(body.logo_url);
       if (body.imp_url) result.impUrl = String(body.imp_url);
+      if (body.template) result.template = String(body.template);
       this.lastSuccessAt = Date.now();
       if (key) this.cache.set(key, { value: result, expiresAt: Date.now() + this.cacheTtlMs });
       return result;
