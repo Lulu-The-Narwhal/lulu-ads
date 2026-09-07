@@ -212,6 +212,15 @@ def _parse(status_code: int, json_body) -> dict | None:
         # the moment the sponsored strip actually shows, so "rendered" is
         # counted separately from "returned" (CPM only ever pays rendered).
         result["imp_url"] = str(json_body["imp_url"])
+    if json_body.get("template"):
+        # Per-ad template (kin repo's LUL-64: ads.ad_format, forwarded by
+        # ads-server's /slot as "template") -- rides the same wire path
+        # imp_url/logo_url already use. The widget bundle prefers this
+        # live value over whatever template= the integrator registered
+        # with; falls back to "card" client-side if it's not a template
+        # this bundle build recognizes. See docs/superpowers/specs/
+        # 2026-09-07-per-ad-template-live-override-design.md.
+        result["template"] = str(json_body["template"])
     return result
 
 

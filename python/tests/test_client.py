@@ -206,6 +206,19 @@ async def test_logo_url_absent_when_not_in_response():
     assert "logo_url" not in out
 
 
+async def test_template_passed_through_when_present():
+    with_template = dict(GOOD, template="banner")
+    ads = make_client(lambda r: httpx.Response(200, json=with_template))
+    out = await ads.sponsored_slot(context={"tool": "x"})
+    assert out["template"] == "banner"
+
+
+async def test_template_absent_when_not_in_response():
+    ads = make_client(lambda r: httpx.Response(200, json=GOOD))
+    out = await ads.sponsored_slot(context={"tool": "x"})
+    assert "template" not in out
+
+
 def test_classify_timeout_has_real_headroom_over_server_side_classify_budget():
     # ads-server's own classify_prompt budget is 2.0s (app/classify.py) --
     # the classify-path default must clear that with room for matching +
