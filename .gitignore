@@ -3,3 +3,6 @@ __pycache__/
 dist/
 node_modules/
 *.egg-info/
+
+# Superpowers isolated worktrees (per-task scratch, not part of history)
+.worktrees/
