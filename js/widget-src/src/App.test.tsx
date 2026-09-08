@@ -354,4 +354,22 @@ describe("App: template dispatch", () => {
     const imgs = Array.from(container.querySelectorAll("img")).map((img) => img.src)
     expect(imgs.some((src) => src.includes("aGVsbG8="))).toBe(true)
   })
+
+  it("live template overrides the registration-time default", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "card" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com", template: "banner" })
+    expect(container.querySelector("span")?.textContent).toBe("Sponsored")
+  })
+
+  it("falls back to the registration-time default when the live payload has no template", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "banner" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com" })
+    expect(container.querySelector("span")?.textContent).toBe("Sponsored")
+  })
+
+  it("falls back to the registration-time default when the live template is unrecognized", async () => {
+    setOpts({ text: "x", url: "https://x.com", template: "banner" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com", template: "does-not-exist" })
+    expect(container.querySelector("span")?.textContent).toBe("Sponsored")
+  })
 })

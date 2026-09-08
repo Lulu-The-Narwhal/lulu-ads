@@ -74,7 +74,20 @@ function App() {
   // see readInitialOptions's doc.
   const [initialOptions] = useState(() => readInitialOptions())
   const [state, setState] = useState<SponsoredCardState>({ kind: "loading" })
-  const Content = TEMPLATES[initialOptions?.template ?? "card"] ?? SponsoredCard
+  // Per-ad template (kin repo's LUL-64) wins when the current call's live
+  // tool-result carries one AND this bundle build recognizes it. An
+  // absent or unrecognized live value falls through to the
+  // registration-time default instead of straight to "card" -- so a
+  // typo'd/newer-than-this-build live template degrades to what the
+  // integrator configured, not silently past it. TEMPLATES[...] ??
+  // SponsoredCard still fails open at the very end for an unrecognized
+  // (or absent) registration-time value too, unchanged from before. See
+  // docs/superpowers/specs/2026-09-07-per-ad-template-live-override-design.md's
+  // "Precedence rule (decided)".
+  const liveTemplate = state.kind === "loaded" ? state.template : undefined
+  const recognizedLiveTemplate = liveTemplate && TEMPLATES[liveTemplate] ? liveTemplate : undefined
+  const Content =
+    TEMPLATES[recognizedLiveTemplate ?? initialOptions?.template ?? "card"] ?? SponsoredCard
 
   // Guards the one-time loading->settled size-changed resend below so it
   // fires exactly once for that transition, never again on later
