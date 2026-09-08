@@ -32,6 +32,12 @@ export type SponsoredCardState =
        * this "loaded" transition. Carried on state only because it's
        * spread in from `SponsoredData` alongside everything else. */
       impUrl?: string
+      /** Per-ad template (kin repo's LUL-64) -- not rendered by any
+       * template component itself; App.tsx reads this to pick WHICH
+       * component to render. Carried on state only because it's spread
+       * in from `SponsoredData` alongside everything else, same as
+       * impUrl above. */
+      template?: string
     }
   | { kind: "noFill" }
 
