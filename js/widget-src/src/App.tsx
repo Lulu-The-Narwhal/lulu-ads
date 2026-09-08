@@ -21,11 +21,20 @@ import { Footer } from "./Footer"
  * "card" (SponsoredCard) is the only entry today -- new templates land here
  * as their own components ship (LUL-47..57), never as a separate dispatch
  * mechanism. An unrecognized/missing `template` value falls back to "card"
- * rather than rendering nothing, matching widget.py/widget.ts's own
- * "unknown template" validation happening earlier, at registration time --
- * by the time this runs, a bad value already would have raised there, so
- * this fallback only ever matters for the unbuilt `vite dev` case (no
- * baked-in opts at all) or a bundle/SDK version mismatch.
+ * rather than rendering nothing.
+ *
+ * For the registration-time `template=` value, this fallback is mostly a
+ * belt-and-suspenders: widget.py/widget.ts's own "unknown template"
+ * validation already raises at registration time, before this ever runs,
+ * so it only really matters for the unbuilt `vite dev` case (no baked-in
+ * opts at all) or a bundle/SDK version mismatch. But the LIVE per-ad
+ * `template` value (see App's `pick()` below) has no such server-side
+ * gate -- it's admin-set, external data relayed live from `/slot`, by
+ * design (see the design spec) -- so for that value this fallback is the
+ * ONLY thing standing between a bad/unrecognized name and a broken
+ * render. Any lookup into this registry (both the live value and this
+ * registration-time value) MUST go through an own-property check, not a
+ * plain truthy/presence check -- see `pick()`'s comment in App() for why.
  */
 const TEMPLATES: Record<
   string,
@@ -79,15 +88,34 @@ function App() {
   // absent or unrecognized live value falls through to the
   // registration-time default instead of straight to "card" -- so a
   // typo'd/newer-than-this-build live template degrades to what the
-  // integrator configured, not silently past it. TEMPLATES[...] ??
-  // SponsoredCard still fails open at the very end for an unrecognized
-  // (or absent) registration-time value too, unchanged from before. See
+  // integrator configured, not silently past it. `pick()` below still
+  // fails open to SponsoredCard at the very end for an unrecognized (or
+  // absent) registration-time value too, unchanged from before. See
   // docs/superpowers/specs/2026-09-07-per-ad-template-live-override-design.md's
   // "Precedence rule (decided)".
+  //
+  // Both lookups go through `Object.prototype.hasOwnProperty` rather than
+  // a plain truthy `TEMPLATES[name]`/presence check: `TEMPLATES` is a
+  // plain object literal, so a bracket lookup for a name like
+  // "constructor", "toString", "__proto__", or "hasOwnProperty" resolves
+  // through the prototype chain to a real (truthy) function -- which
+  // would read as a "recognized" template even though it isn't one. The
+  // registration-time value is validated server-side before this code
+  // ever runs (`register_sponsored_widget()` raises on an unrecognized
+  // name), but the live value is not -- it's admin-set, external data
+  // relayed from `/slot` with no server-side allowlist by design (the
+  // bundle's own fallback is meant to be the safety net) -- so this is
+  // the first path where a prototype-chain name is reachable from live,
+  // untrusted input. Left unguarded, `TEMPLATES["constructor"]` would be
+  // treated as "recognized," React would throw or render nothing on the
+  // resulting non-component value, and the rendered-impression beacon
+  // (which fires on the loading->loaded transition, before that failure
+  // is visible) would already have fired -- billing a CPM for an ad that
+  // never rendered.
+  const pick = (name?: string) =>
+    name && Object.prototype.hasOwnProperty.call(TEMPLATES, name) ? TEMPLATES[name] : undefined
   const liveTemplate = state.kind === "loaded" ? state.template : undefined
-  const recognizedLiveTemplate = liveTemplate && TEMPLATES[liveTemplate] ? liveTemplate : undefined
-  const Content =
-    TEMPLATES[recognizedLiveTemplate ?? initialOptions?.template ?? "card"] ?? SponsoredCard
+  const Content = pick(liveTemplate) ?? pick(initialOptions?.template) ?? SponsoredCard
 
   // Guards the one-time loading->settled size-changed resend below so it
   // fires exactly once for that transition, never again on later

@@ -372,4 +372,22 @@ describe("App: template dispatch", () => {
     await renderWithToolResult({ text: "Save 15%", url: "https://example.com", template: "does-not-exist" })
     expect(container.querySelector("span")?.textContent).toBe("Sponsored")
   })
+
+  it("live template applies when no registration-time default exists at all", async () => {
+    setOpts({ text: "x", url: "https://x.com" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com", template: "banner" })
+    expect(container.querySelector("span")?.textContent).toBe("Sponsored")
+  })
+
+  it("does not treat a prototype-chain name as a recognized live template", async () => {
+    setOpts({ text: "x", url: "https://x.com" })
+    await renderWithToolResult({ text: "Save 15%", url: "https://example.com", template: "constructor" })
+    // Falls through to SponsoredCard (no span) -- and actually renders the
+    // offer, not a blank/broken widget (a plain truthy/presence check on
+    // TEMPLATES["constructor"] would resolve to Object's constructor
+    // function, which React can't render, throwing instead of falling
+    // through to this).
+    expect(container.querySelector("span")).toBeNull()
+    expect(container.textContent).toContain("Save 15%")
+  })
 })

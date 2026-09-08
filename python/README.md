@@ -678,6 +678,22 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.14** — An ad's per-call `template` (LUL-64, when `/slot` reports one)
+  now wins over the `template=`/`template:` you registered with, for the
+  standalone sponsor-card widget (`register_sponsored_widget()`/
+  `registerSponsoredWidget()`). If it's absent or not a template this
+  bundle build recognizes, it falls back to your registration-time
+  default as before, then to `"card"`. **Behavior change on upgrade, no
+  code change required:** if you registered with a non-default
+  `template=` (e.g. `"hero"`), ads that carry their own live template
+  will now render in that template instead, with no opt-out. This is
+  intentional — an admin picking a template for a specific ad is meant to
+  be more specific than a blanket integrator default — but it does mean
+  your widget's visual output can change after upgrading even though you
+  changed no code. Also fixes a lookup hazard where a prototype-chain
+  name (e.g. `"constructor"`) in a live `template` value could be
+  misread as "recognized" and crash the render after the impression
+  beacon had already fired.
 - **0.9.13** — Fixed a rendered-impression billing gap (LUL-71) in the
   standalone sponsor-card widget (`register_sponsored_widget()`/
   `registerSponsoredWidget()` — the React-built card, banner, flip-card,

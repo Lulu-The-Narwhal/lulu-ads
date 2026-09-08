@@ -72,11 +72,17 @@ Add `template?: string` to the `"loaded"` branch (mirrors `SponsoredData`, same 
 const Content = TEMPLATES[initialOptions?.template ?? "card"] ?? SponsoredCard
 
 // after:
+const pick = (name?: string) =>
+  name && Object.prototype.hasOwnProperty.call(TEMPLATES, name) ? TEMPLATES[name] : undefined
 const liveTemplate = state.kind === "loaded" ? state.template : undefined
-const Content = TEMPLATES[liveTemplate ?? initialOptions?.template ?? "card"] ?? SponsoredCard
+const Content = pick(liveTemplate) ?? pick(initialOptions?.template) ?? SponsoredCard
 ```
 
-`Content` already recomputes on every render (it's not memoized), so this is the entire change — once `state` transitions to `"loaded"` with a live `template`, the next render picks it up automatically. `TEMPLATES[...] ?? SponsoredCard` already fails open for any template name this bundle build doesn't recognize (documented behavior, unchanged) — this is what makes it safe for `/slot` to pass through a template the bundle doesn't know about yet (e.g. `"comparison"` while LUL-50 is mid-flight) without ads-server needing its own allowlist, per LUL-64's design.
+`Content` already recomputes on every render (it's not memoized), so once `state` transitions to `"loaded"` with a live `template`, the next render picks it up automatically. Note this is a two-tier fallback, not a single `??` chain: a plain `TEMPLATES[liveTemplate ?? initialOptions?.template ?? "card"] ?? SponsoredCard` would be wrong, because `??` only checks nullishness — an unrecognized-but-present live value (not null/undefined) would short-circuit the chain and skip the registration-time default entirely, landing straight on `SponsoredCard` instead of honoring what the integrator registered. `pick()` instead checks recognition explicitly at each tier (recognized live wins → else the registration-time default → else `SponsoredCard`), matching the "Precedence rule (decided)" section above.
+
+`pick()` also guards with `Object.prototype.hasOwnProperty` rather than a plain truthy/presence check at either tier: `TEMPLATES` is a plain object literal, so a bracket lookup for a prototype-chain name like `"constructor"` or `"toString"` resolves through `Object.prototype` to a real, truthy value — which would otherwise be misread as "recognized" even though it isn't a template. This matters specifically for the live tier: the registration-time value is validated server-side before this code ever runs (`register_sponsored_widget()` raises on an unrecognized name), but the live value is admin-set, external data relayed from `/slot` with no server-side allowlist by design — this is the first path where a prototype-chain name is reachable from live, untrusted input. Left unguarded, a crafted/buggy `"constructor"` live value would cause React to throw or render nothing, after the rendered-impression beacon (which fires on the loading→loaded transition, before that failure is visible) had already fired — billing a CPM for an ad that never rendered.
+
+This is what makes it safe for `/slot` to pass through a template the bundle doesn't know about yet (e.g. `"comparison"` while LUL-50 is mid-flight) without ads-server needing its own allowlist, per LUL-64's design — an unrecognized live value degrades to the registration-time default, not past it, and a prototype-chain name is never treated as recognized at either tier.
 
 ## Backward compatibility
 
@@ -88,7 +94,7 @@ Fully additive on every layer:
 
 ## Testing
 
-Mirror the existing test files for each changed module (`python/tests/test_client.py`, `js/test/client.test.ts`, `js/widget-src/src/mcpBridge.test.ts`, `js/widget-src/src/App.test.tsx`) — add cases for: `template` present and recognized → forwarded/rendered; absent → falls back to registration-time default; present but not a key in `TEMPLATES` → falls back to registration-time default via the existing `?? SponsoredCard` fail-open (not a crash). No existing test should need to change except where it asserts an exact dict/object shape that gains an optional key (same class of update LUL-71's `imp_url` rollout required).
+Mirror the existing test files for each changed module (`python/tests/test_client.py`, `js/test/client.test.ts`, `js/widget-src/src/mcpBridge.test.ts`, `js/widget-src/src/App.test.tsx`) — add cases for: `template` present and recognized → forwarded/rendered; absent → falls back to registration-time default; present but not a key in `TEMPLATES` (including a prototype-chain name like `"constructor"`, which `pick()`'s own-property check must also treat as unrecognized) → falls back to registration-time default, then to `"card"` (not a crash, not a silent skip to `"card"` past the registration-time default). No existing test should need to change except where it asserts an exact dict/object shape that gains an optional key (same class of update LUL-71's `imp_url` rollout required).
 
 ## Release
 

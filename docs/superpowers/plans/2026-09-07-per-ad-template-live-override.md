@@ -397,12 +397,24 @@ In `js/widget-src/src/App.tsx`, modify the `Content` line:
 
   // Per-ad template (kin repo's LUL-64) wins when the current call's live
   // tool-result carries one; falls back to the registration-time default,
-  // then to "card". TEMPLATES[...] ?? SponsoredCard already fails open
-  // for any name this bundle build doesn't recognize -- unchanged
-  // behavior, now just also applied to the live value. See
+  // then to "card". A `??` chain alone is NOT sufficient here: it only
+  // checks nullishness, not whether the name is actually a recognized key
+  // in TEMPLATES, so an unrecognized-but-present live value would
+  // incorrectly skip the registration-time fallback and fall straight to
+  // "card". Both lookups must instead go through an own-property check
+  // (`Object.prototype.hasOwnProperty`), not just presence/truthiness --
+  // a bracket lookup for a prototype-chain name like "constructor" or
+  // "toString" resolves through Object.prototype to a real, truthy value,
+  // which would otherwise be misread as "recognized". This matters now
+  // because the live value is admin-set, external data relayed from
+  // `/slot` with no server-side allowlist -- unlike the registration-time
+  // value, which `register_sponsored_widget()` validates before this code
+  // ever runs. See
   // docs/superpowers/specs/2026-09-07-per-ad-template-live-override-design.md.
+  const pick = (name?: string) =>
+    name && Object.prototype.hasOwnProperty.call(TEMPLATES, name) ? TEMPLATES[name] : undefined
   const liveTemplate = state.kind === "loaded" ? state.template : undefined
-  const Content = TEMPLATES[liveTemplate ?? initialOptions?.template ?? "card"] ?? SponsoredCard
+  const Content = pick(liveTemplate) ?? pick(initialOptions?.template) ?? SponsoredCard
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
