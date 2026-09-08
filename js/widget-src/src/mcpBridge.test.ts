@@ -95,6 +95,16 @@ describe("extractSponsored", () => {
     const msg = toolResultMessage({ text: "hi", url: "https://x.example" })
     expect(extractSponsored(msg)?.impUrl).toBeUndefined()
   })
+
+  it("reads template from the live payload", () => {
+    const msg = toolResultMessage({ text: "hi", url: "https://x.example", template: "banner" })
+    expect(extractSponsored(msg)?.template).toBe("banner")
+  })
+
+  it("omits template when the live payload has none", () => {
+    const msg = toolResultMessage({ text: "hi", url: "https://x.example" })
+    expect(extractSponsored(msg)?.template).toBeUndefined()
+  })
 })
 
 describe("fireImpressionBeacon (LUL-71)", () => {

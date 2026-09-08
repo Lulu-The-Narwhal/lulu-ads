@@ -43,6 +43,10 @@ export interface SponsoredData {
   logoDataUri?: string
   cta: string
   impUrl?: string
+  /** Per-ad template (kin repo's LUL-64) — read from the live tool-result
+   * payload; App.tsx prefers this over the registration-time default.
+   * See docs/superpowers/specs/2026-09-07-per-ad-template-live-override-design.md. */
+  template?: string
 }
 
 const DEFAULT_CTA = "Learn more →"
@@ -131,6 +135,7 @@ interface RawSponsored {
   logoUrl?: unknown
   imp_url?: unknown
   impUrl?: unknown
+  template?: unknown
 }
 
 interface RawToolResultMessage {
@@ -172,8 +177,12 @@ export function extractSponsored(msg: RawToolResultMessage, defaults?: InitialOp
         ? sponsored.impUrl
         : undefined
   const cta = (defaults?.cta && defaults.cta.trim()) ? defaults.cta : DEFAULT_CTA
+  const template =
+    typeof sponsored.template === "string" && sponsored.template
+      ? sponsored.template
+      : undefined
 
-  return { label, text, url, logoDataUri, cta, impUrl }
+  return { label, text, url, logoDataUri, cta, impUrl, template }
 }
 
 /**
