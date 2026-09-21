@@ -8,16 +8,20 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "start": "npm run build && node dist/typescript_tool.js"
+    "start": "npm run build && node dist/typescript_tool.js",
+    "verify:skybridge": "tsx verify_skybridge.ts",
+    "start:skybridge": "tsx skybridge_server.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "lulu-ads": "^2.0.1",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "skybridge": "^1.4.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "tsx": "^4.0.0"
   },
   "engines": {
     "node": ">=18"

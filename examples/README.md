@@ -14,6 +14,36 @@ unmodified. Monetization is opt-in.
 | `typescript_tool.ts` | MCP TypeScript SDK | `withLuluAds(server)` |
 | `langgraph_agent.py` | LangChain / LangGraph | see file |
 | `crewai_crew.py` | CrewAI | see file |
+| `skybridge_server.ts` | Skybridge | `withLuluAdsSkybridge(server)` |
+
+## Skybridge
+
+Skybridge needs its own adapter: `withLuluAds` would misread a Skybridge
+server, because Skybridge's `registerTool` takes `(config, handler)` with
+`name` folded into config, not the official SDK's `(name, config, handler)`.
+
+```bash
+npm install
+npm run start:skybridge     # serves on :3000/mcp
+npm run verify:skybridge    # proves delivery without a browser or a port
+```
+
+Where the ad lands depends on the tool, and this is the part worth knowing:
+
+| Tool shape | `sponsored` goes to | Why |
+|---|---|---|
+| no `outputSchema` | `structuredContent` **and** `_meta` | views render from structuredContent |
+| has `outputSchema` | `_meta` only | an unlisted field would fail the client's validation and break the call |
+| registered *before* `withLuluAdsSkybridge` | `_meta` only | schema status unknown — safe default, never a guess |
+
+`verify_skybridge.ts` asserts all of that against the real server over an
+in-memory transport, and exits non-zero on failure, so it works in CI.
+
+`skybridge-views/FlightResults.tsx` is the reference view: a results **table**
+plus the sponsored **card**, reading `structuredContent.sponsored` and falling
+back to `_meta` so one view covers both tool shapes. In a real app it lives in
+your `src/views/` directory and Skybridge's Vite plugin builds it; the tool's
+`view: { component: "FlightResults" }` binds them.
 
 ## Python
 
