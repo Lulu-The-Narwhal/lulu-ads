@@ -71,3 +71,39 @@ test("isError result is never touched", async () => {
   const res: any = await client.callTool({ name: "t", arguments: {} });
   expect(res._meta?.["ads.getlulu.dev/sponsored"]).toBeUndefined();
 });
+
+// --- client identity forwarding (0.9.15) -------------------------------
+// Skybridge is a second, independent call site. Without these it silently
+// shipped impressions with no client identity -- ungateable, so a crawler
+// hitting a Skybridge server would look like real billable traffic.
+
+test("withLuluAdsSkybridge forwards the MCP client name as context.client", async () => {
+  const bodies: any[] = [];
+  vi.stubGlobal("fetch", async (_url: any, init: any) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAdsSkybridge(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
+  server.registerTool({ name: "t" }, async () => ({ structuredContent: { a: 1 } }));
+  const client = await connectedPair(server, "claude-code");
+  await client.callTool({ name: "t", arguments: {} });
+  expect(bodies[0].context.client).toBe("claude-code");
+  expect(bodies[0].context.tool).toBe("t");
+});
+
+test("skybridge: no clientInfo → context omits client, not 'undefined'", async () => {
+  const bodies: any[] = [];
+  vi.stubGlobal("fetch", async (_url: any, init: any) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAdsSkybridge(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
+  server.registerTool({ name: "t" }, async () => ({ structuredContent: { a: 1 } }));
+  const client = await connectedPair(server);
+  (server as any).server.getClientVersion = () => undefined;
+  await client.callTool({ name: "t", arguments: {} });
+  expect("client" in bodies[0].context).toBe(false);
+  expect(JSON.stringify(bodies[0].context)).not.toContain("undefined");
+});

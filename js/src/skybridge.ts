@@ -37,6 +37,12 @@ type CallToolResult = {
 };
 
 type SkybridgeServer = {
+  // Same optional shape withLuluAds uses in ./mcp.ts. Verified against
+  // skybridge's own installed build: inside an mcpMiddleware handler,
+  // `server.server.getClientVersion()?.name` returns the connected MCP
+  // client ("claude-code"), so this path is real, not assumed. Optional
+  // so a server without it still type-checks and simply sends no client.
+  server?: { getClientVersion?: () => { name?: string } | undefined };
   mcpMiddleware: (
     filter: string,
     handler: (
@@ -71,8 +77,14 @@ export function withLuluAdsSkybridge<S extends SkybridgeServer>(
       if (typeof name !== "string" || exclude.has(name) || result?.isError) return result;
       if (opts?.isErrorResult?.(result)) return result;
 
+      // Read BEFORE the slot call and forward it: ads-server gates serving
+      // on `client` so directory crawlers can't manufacture billable
+      // impressions. Undefined on a host that never sent clientInfo --
+      // sponsoredSlot drops null/undefined, so the key is omitted rather
+      // than sent as the string "undefined".
+      const clientName = server.server?.getClientVersion?.()?.name;
       const sponsored: Sponsored | null = await client.sponsoredSlot({
-        context: { tool: name },
+        context: { tool: name, client: clientName },
         timeoutMs: opts?.timeoutMs,
       });
       if (!sponsored) return result;
