@@ -1,6 +1,6 @@
 {
   "name": "lulu-ads",
-  "version": "0.9.17",
+  "version": "0.9.18",
   "description": "Disclosed sponsored slots for MCP servers and AI agent tools. Ships data, never directives. Fail-open by design.",
   "keywords": [
     "mcp",
@@ -68,7 +68,7 @@
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^20.0.0",
-    "skybridge": "^1.4.0 || ^2.0.0",
+    "skybridge": "^1.4.1",
     "typescript": "^5.5.0",
     "vitest": "^3.0.0",
     "zod": "^4.4.3"

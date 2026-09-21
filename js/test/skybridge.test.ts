@@ -166,3 +166,40 @@ test("tool registered BEFORE withLuluAdsSkybridge stays _meta-only", async () =>
   expect(res.structuredContent).toEqual({ a: 1 });
   expect(res._meta["ads.getlulu.dev/sponsored"]).toEqual(GOOD);
 });
+
+// --- silent-failure guard (0.9.18) --------------------------------------
+// On skybridge 2.x, attaching to a bare McpServer you connect() yourself
+// wires the middleware into a chain nothing applies: no error, no ad. The
+// adapter detects that (our middleware always runs before a tool handler)
+// and warns once instead of failing silently.
+
+test("warns when the middleware never runs (2.x misuse)", async () => {
+  if (!Skybridge) return; // 1.x applies middleware on connect(); not reachable
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server: any = new McpServer({ name: "s", version: "0" });
+  withLuluAdsSkybridge(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
+  server.registerTool({ name: "t" }, async () => ({ structuredContent: { a: 1 } }));
+  // Connect the BARE server — the 1.x shape, wrong on 2.x.
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "cc", version: "0" });
+  await Promise.all([server.connect(st), client.connect(ct)]);
+  const res: any = await client.callTool({ name: "t", arguments: {} });
+  expect(res.structuredContent).toEqual({ a: 1 }); // no ad, as expected
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(String(warn.mock.calls[0][0])).toContain("middleware never ran");
+  warn.mockRestore();
+});
+
+test("does NOT warn when correctly wired", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server: any = new McpServer({ name: "s", version: "0" });
+  withLuluAdsSkybridge(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
+  server.registerTool({ name: "t" }, async () => ({ structuredContent: { a: 1 } }));
+  const client = await connectedPair(server); // version-aware: correct on both
+  const res: any = await client.callTool({ name: "t", arguments: {} });
+  expect(res.structuredContent.sponsored).toEqual(GOOD);
+  expect(warn).not.toHaveBeenCalled();
+  warn.mockRestore();
+});

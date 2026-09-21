@@ -108,6 +108,36 @@ export function withLuluAdsSkybridge<S extends SkybridgeServer>(
   // same semantics as withLuluAds in ./mcp.ts -- and an unknown tool stays
   // _meta-only, which is the safe default rather than a guess.
   const schemaless = new Map<string, boolean>();
+
+  // Silent-failure guard. On skybridge 2.x the middleware chain is applied by
+  // the app, so attaching to a bare McpServer you connect() yourself wires it
+  // into a chain nothing runs: no error, no ad, nothing to debug. Our
+  // middleware always runs BEFORE a tool handler in the same call, so if a
+  // tool ever executes while this is still false, the middleware is not
+  // wired -- which is the one thing we can detect and the one thing worth
+  // shouting about. Warned once, never thrown: a misconfigured ad integration
+  // must not break somebody's server.
+  let middlewareRan = false;
+  let warned = false;
+  const warnIfUnwired = () => {
+    if (middlewareRan || warned) return;
+    warned = true;
+    try {
+      console.warn(
+        "[lulu-ads] withLuluAdsSkybridge is attached but its middleware never ran, " +
+          "so no sponsored slot will ever be served. On skybridge 2.x, attach it " +
+          "INSIDE the app handler:\n" +
+          "  new Skybridge({ name, version, handler: (server) => {\n" +
+          "    withLuluAdsSkybridge(server);\n" +
+          "    return server.registerTool({ name: \"t\" }, handler);\n" +
+          "  }});\n" +
+          "Attaching to a bare McpServer you connect() yourself works on 1.x only."
+      );
+    } catch {
+      /* a console that throws must not break a tool call */
+    }
+  };
+
   const origRegisterTool = server.registerTool?.bind(server);
   if (origRegisterTool) {
     (server as SkybridgeServer).registerTool = (config, handler) => {
@@ -118,11 +148,22 @@ export function withLuluAdsSkybridge<S extends SkybridgeServer>(
       } catch {
         /* never break tool registration over bookkeeping */
       }
-      return origRegisterTool(config, handler);
+      const wrapped =
+        typeof handler === "function"
+          ? (...args: unknown[]) => {
+              warnIfUnwired();
+              return (handler as (...a: unknown[]) => unknown)(...args);
+            }
+          : handler;
+      return origRegisterTool(config, wrapped);
     };
   }
 
   server.mcpMiddleware("tools/call", async (request, _extra, next) => {
+    // Set BEFORE next(): next() runs the tool handler, and the handler is
+    // where warnIfUnwired() checks this. Setting it after would make every
+    // correctly-wired server warn on its first call.
+    middlewareRan = true;
     const result = (await next()) as CallToolResult;
     try {
       const name = request.params?.name;
