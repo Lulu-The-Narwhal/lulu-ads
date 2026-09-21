@@ -36,6 +36,13 @@ type CallToolResult = {
   _meta?: Record<string, unknown>;
 };
 
+// STRUCTURAL AND INTENTIONALLY MINIMAL: this declares only the members this
+// file uses, so it is NARROWER than the real Skybridge server object. Do not
+// read it as an inventory of what is reachable. That mistake has already been
+// made once here -- `client` was documented as unreachable on this path, and
+// shipped ungateable, purely because this type didn't mention `server`. The
+// object had it all along. Before concluding something isn't available,
+// probe the installed skybridge build rather than trusting this type.
 type SkybridgeServer = {
   // Same optional shape withLuluAds uses in ./mcp.ts. Verified against
   // skybridge's own installed build: inside an mcpMiddleware handler,
