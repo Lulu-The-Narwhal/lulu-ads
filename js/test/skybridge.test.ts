@@ -17,7 +17,7 @@ async function connectedPair(server: McpServer, clientName = "t") {
   return client;
 }
 
-test("withLuluAdsSkybridge attaches sponsored to _meta only, never structuredContent", async () => {
+test("withLuluAdsSkybridge attaches sponsored to _meta and (schemaless) structuredContent", async () => {
   vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
   const server = new McpServer({ name: "s", version: "0" });
   withLuluAdsSkybridge(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
@@ -31,9 +31,12 @@ test("withLuluAdsSkybridge attaches sponsored to _meta only, never structuredCon
   const client = await connectedPair(server);
   const res: any = await client.callTool({ name: "search_flights", arguments: { origin: "TLV" } });
   expect(res._meta["ads.getlulu.dev/sponsored"]).toEqual(GOOD);
-  // Never touched -- middleware has no visibility into outputSchema, so
-  // structuredContent is left exactly as the tool returned it.
-  expect(res.structuredContent).toEqual({ flights: [1] });
+  // BEHAVIOR CHANGE (2.0.1), the reason this is a major: this adapter used to
+  // be _meta-only, which on Skybridge meant the slot was fetched and never
+  // surfaced -- no widget, no CLI card, nothing reading _meta. The tool here
+  // declares inputSchema but no outputSchema, so adding `sponsored` cannot
+  // fail anyone's output validation and it becomes deliverable.
+  expect(res.structuredContent).toEqual({ flights: [1], sponsored: GOOD });
 });
 
 test("ads down -> result untouched", async () => {
@@ -106,4 +109,48 @@ test("skybridge: no clientInfo → context omits client, not 'undefined'", async
   await client.callTool({ name: "t", arguments: {} });
   expect("client" in bodies[0].context).toBe(false);
   expect(JSON.stringify(bodies[0].context)).not.toContain("undefined");
+});
+
+// --- delivery path (2.0.1) ----------------------------------------------
+// Before this, Skybridge fetched a slot and surfaced nothing: _meta only,
+// no widget (enableLuluAds needs registerResource, which Skybridge doesn't
+// expose), no CLI card. structuredContent is what Skybridge renders from.
+
+test("schemaless tool: sponsored is delivered into structuredContent", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAdsSkybridge(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
+  server.registerTool({ name: "plain" }, async () => ({ structuredContent: { a: 1 } }));
+  const client = await connectedPair(server);
+  const res: any = await client.callTool({ name: "plain", arguments: {} });
+  expect(res.structuredContent.sponsored).toEqual(GOOD);
+  expect(res.structuredContent.a).toBe(1);
+  expect(res._meta["ads.getlulu.dev/sponsored"]).toEqual(GOOD);
+});
+
+test("outputSchema tool: structuredContent untouched, _meta still set", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAdsSkybridge(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
+  server.registerTool(
+    { name: "typed", outputSchema: { a: z.number() } },
+    async () => ({ structuredContent: { a: 1 } })
+  );
+  const client = await connectedPair(server);
+  const res: any = await client.callTool({ name: "typed", arguments: {} });
+  // Adding an unlisted field would fail the client's schema validation.
+  expect(res.structuredContent).toEqual({ a: 1 });
+  expect(res._meta["ads.getlulu.dev/sponsored"]).toEqual(GOOD);
+});
+
+test("tool registered BEFORE withLuluAdsSkybridge stays _meta-only", async () => {
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(GOOD), { status: 200 }));
+  const server = new McpServer({ name: "s", version: "0" });
+  server.registerTool({ name: "early" }, async () => ({ structuredContent: { a: 1 } }));
+  withLuluAdsSkybridge(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
+  const client = await connectedPair(server);
+  const res: any = await client.callTool({ name: "early", arguments: {} });
+  // Unknown schema status -> safe default, never a guess.
+  expect(res.structuredContent).toEqual({ a: 1 });
+  expect(res._meta["ads.getlulu.dev/sponsored"]).toEqual(GOOD);
 });

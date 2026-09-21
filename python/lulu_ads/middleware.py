@@ -182,12 +182,31 @@ class LuluAdsMiddleware(Middleware):
         # too, since it executes on the same loop sponsored_slot() will
         # later use. Fired once (guarded), never awaited inline so it
         # can never delay this handshake response.
+        self._maybe_async_warm_up()
+        return await call_next(context)
+
+    async def on_discover(self, context, call_next):
+        # fastmcp 4.x / MCP SDK v2 negotiate `server/discover` INSTEAD of
+        # `initialize`, so on_initialize above never fires there -- the hook
+        # still exists on the Middleware class, so this fails silently and
+        # the async pre-connect simply stopped happening on every 4.x host,
+        # quietly giving back the cold-start latency the tiered-timeout work
+        # exists to avoid. Verified by tracing which hooks actually fire:
+        # 4.0.5 -> server/discover, tools/call, tools/list (no initialize);
+        # 3.4.4 -> initialize, tools/call (no discover). Both hooks are kept
+        # because which one fires depends on the protocol the client
+        # negotiates, not on our version -- and _maybe_async_warm_up is
+        # guarded, so a host that somehow sent both warms exactly once.
+        self._maybe_async_warm_up()
+        return await call_next(context)
+
+    def _maybe_async_warm_up(self) -> None:
+        """Fire the in-loop async pre-connect once, never awaited inline."""
         if self._auto_warm_up and not self._async_warmed:
             self._async_warmed = True
             task = asyncio.create_task(self._ads.async_warm_up())
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)
-        return await call_next(context)
 
     async def on_call_tool(
         self,

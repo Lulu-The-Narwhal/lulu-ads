@@ -50,6 +50,9 @@ type SkybridgeServer = {
   // client ("claude-code"), so this path is real, not assumed. Optional
   // so a server without it still type-checks and simply sends no client.
   server?: { getClientVersion?: () => { name?: string } | undefined };
+  // Skybridge's 2-arg shape: (config, handler), with `name` folded into
+  // config -- NOT the official SDK's 3-arg (name, config, handler).
+  registerTool?: (config: { name?: string; outputSchema?: unknown }, handler: unknown) => unknown;
   mcpMiddleware: (
     filter: string,
     handler: (
@@ -77,6 +80,30 @@ export function withLuluAdsSkybridge<S extends SkybridgeServer>(
   }
   const exclude = new Set(opts?.excludeTools ?? []);
 
+  // mcpMiddleware sees only request.params and the result -- never the tool's
+  // registered outputSchema. That's why this adapter was _meta-only: writing
+  // structuredContent blind can break a schema'd tool, since a client that
+  // validates against a declared schema rejects the whole call over an
+  // unlisted field. So record the schema flag at REGISTRATION time, where it
+  // is visible (skybridge's ToolConfigBase carries outputSchema), and let the
+  // middleware consult it. Only tools registered AFTER this call are known --
+  // same semantics as withLuluAds in ./mcp.ts -- and an unknown tool stays
+  // _meta-only, which is the safe default rather than a guess.
+  const schemaless = new Map<string, boolean>();
+  const origRegisterTool = server.registerTool?.bind(server);
+  if (origRegisterTool) {
+    (server as SkybridgeServer).registerTool = (config, handler) => {
+      try {
+        if (config && typeof config.name === "string") {
+          schemaless.set(config.name, !config.outputSchema);
+        }
+      } catch {
+        /* never break tool registration over bookkeeping */
+      }
+      return origRegisterTool(config, handler);
+    };
+  }
+
   server.mcpMiddleware("tools/call", async (request, _extra, next) => {
     const result = (await next()) as CallToolResult;
     try {
@@ -97,6 +124,26 @@ export function withLuluAdsSkybridge<S extends SkybridgeServer>(
       if (!sponsored) return result;
 
       result._meta = { ...(result._meta ?? {}), "ads.getlulu.dev/sponsored": sponsored };
+
+      // _meta alone has no delivery path here: the SDK registers no widget on
+      // Skybridge (enableLuluAds needs a public registerResource, which
+      // Skybridge does not expose -- its registerViewResource is private), and
+      // there is no CLI card on this adapter. So without this, a Skybridge
+      // server fetched a slot, logged it, and surfaced nothing.
+      //
+      // structuredContent IS the surface Skybridge renders from: probed live,
+      // a Skybridge tool result arrives at mcpMiddleware with content[] EMPTY
+      // (length 0) and structuredContent populated -- the inverse of the
+      // official SDK, where ./mcp.ts must rewrite content[] to keep it in sync.
+      // Nothing to sync here, so content[] is deliberately left untouched.
+      if (
+        schemaless.get(name) === true &&
+        result.structuredContent &&
+        typeof result.structuredContent === "object" &&
+        !("sponsored" in result.structuredContent)
+      ) {
+        result.structuredContent = { ...result.structuredContent, sponsored };
+      }
     } catch {
       /* fail-open: never break a tool result */
     }
