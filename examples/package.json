@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "lulu-ads": "^2.0.1",
+    "lulu-ads": "^0.9.18",
     "zod": "^4.4.3",
-    "skybridge": "^1.4.0"
+    "skybridge": "^1.4.0 || ^2.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

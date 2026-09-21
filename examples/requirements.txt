@@ -1,5 +1,5 @@
 # Runtime for the Python examples in this directory.
-lulu-ads>=2.0.1
+lulu-ads>=0.9.18
 
 # fastmcp_server.py
 fastmcp>=2.0.0
