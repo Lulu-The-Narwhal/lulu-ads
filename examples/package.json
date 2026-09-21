@@ -1,0 +1,25 @@
+{
+  "name": "lulu-ads-examples",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runnable examples for the lulu-ads SDK.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "npm run build && node dist/typescript_tool.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "lulu-ads": "^0.9.14",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

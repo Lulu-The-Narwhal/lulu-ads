@@ -1,0 +1,9 @@
+# Runtime for the Python examples in this directory.
+lulu-ads>=0.9.14
+
+# fastmcp_server.py
+fastmcp>=2.0.0
+
+# langgraph_agent.py / crewai_crew.py — install only what you need:
+# langchain-core>=0.3.0
+# crewai>=0.80.0
