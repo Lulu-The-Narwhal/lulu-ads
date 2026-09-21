@@ -4,8 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lulu-ads"
-version = "2.0.1"
+version = "0.9.18"
 description = "Disclosed sponsored slots for MCP servers and AI agent tools. Ships data, never directives. Fail-open by design."
+# This is python/README.md, NOT the repo root README -- it is what PyPI
+# renders. Run ../scripts/sync-readmes.sh before building, or it falls
+# behind; it silently sat four releases stale and published a Skybridge
+# description that had been false since 0.9.15.
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

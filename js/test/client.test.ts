@@ -371,3 +371,15 @@ test("no category or prompt never caches", async () => {
   await client.sponsoredSlot({ context: { tool: "search_flights" } });
   expect(calls).toBe(2);
 });
+
+// SDK_VERSION is transmitted to /slot as `sdk_version`, so a stale literal
+// makes upgrade telemetry report a version nobody is running. It sat at
+// 0.9.14 across four releases. Pin it to package.json so a release that
+// forgets it fails here instead of quietly corrupting the data.
+test("SDK_VERSION matches package.json", async () => {
+  const { readFileSync } = await import("node:fs");
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  const declared = src.match(/const SDK_VERSION = "([^"]+)"/)?.[1];
+  expect(declared).toBe(pkg.version);
+});

@@ -56,7 +56,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "prepublishOnly": "npm run build && cp ../README.md ./README.md"
+    "prepublishOnly": "npm run build && ../scripts/sync-readmes.sh"
   },
   "engines": {
     "node": ">=18"

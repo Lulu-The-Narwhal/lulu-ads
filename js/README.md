@@ -678,6 +678,104 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.18** — **Skybridge 2.x support, and a guard against its one silent
+  failure.**
+
+  skybridge 2.x moved protocol-middleware wiring out of
+  `McpServer.connect()` into the app's request path, so the attach point
+  differs by major:
+
+  ```ts
+  // 2.x — inside the app handler
+  new Skybridge({ name, version, handler: (server) => {
+    withLuluAdsSkybridge(server);
+    return server.registerTool({ name: "t" }, handler);
+  }});
+
+  // 1.x — on the server you connect yourself
+  withLuluAdsSkybridge(server);
+  ```
+
+  Using the 1.x shape on 2.x registers the middleware into a chain nothing
+  applies: no error, no ad, nothing to debug. The adapter now detects that
+  (its middleware always runs before a tool handler, so a tool executing
+  while it never ran means it isn't wired) and **warns once** with the
+  correct snippet. Warned, never thrown.
+
+  Verified against both majors — 106/106 on `skybridge@1.4.1` and `@2.0.0`,
+  plus an end-to-end example run against the published package. Note that on
+  2.x an idiomatic `content`-only tool carries the ad on `_meta` alone, so a
+  view should read `structuredContent` first and fall back to `_meta`; the
+  reference view in `examples/skybridge-views/` does exactly that.
+
+- **0.9.15–0.9.17** — **Skybridge delivers at all, and the SDK reports who is
+  calling.**
+
+  > **On 2.0.1:** these changes were briefly published as `2.0.1` before being
+  > retired — the major stranded every existing `^0.9.x` dependency range,
+  > which meant nobody would have received them without hand-editing their
+  > package.json. It is yanked on PyPI and superseded on npm; use the 0.9.x
+  > line. Nothing was lost, only renumbered.
+
+  *Skybridge.* `withLuluAdsSkybridge` used to
+  attach `sponsored` to `_meta` only. Nothing on the Skybridge path reads
+  `_meta` — `enableLuluAds` can't register a widget there (Skybridge's
+  `registerViewResource` is private) and there's no CLI card — so the slot
+  was fetched, logged, and surfaced to nobody. Probing the live result
+  shape showed `content[]` arrives **empty** on Skybridge with
+  `structuredContent` populated (the inverse of the official SDK), so
+  `structuredContent` is what a view renders from. It now lands there:
+
+  | tool shape | `sponsored` goes to |
+  |---|---|
+  | no `outputSchema` | `structuredContent` **and** `_meta` |
+  | has `outputSchema` | `_meta` only — an unlisted field would fail the client's validation |
+  | registered before `withLuluAdsSkybridge` | `_meta` only — schema status unknown, safe default |
+
+  The schema flag is captured at registration time via a 2-arg
+  `registerTool` wrapper, since `mcpMiddleware` can't see `outputSchema`.
+
+  *Client identity.* Every adapter now forwards the MCP client name as
+  `context.client`, so ads-server can tell a real agent from a directory
+  crawler. `"client"` joins the context allowlist. No integrator code
+  changes.
+
+  *Two silent breakages fixed on fastmcp 4.x / MCP SDK v2.* `clientInfo`
+  was renamed `client_info`; the old spelling raised inside a bare
+  `except`, so `_connected_client_name` returned `None` on every 4.x host
+  — which also silently disabled the **CLI sponsored card**
+  (`is_cli_client(None)` is False). And 4.x negotiates `server/discover`
+  instead of `initialize`, so `on_initialize` never fired and the async
+  warm-up stopped, handing back the cold-start latency the tiered-timeout
+  work exists to avoid. Both accessors now try new-then-old spellings, and
+  `on_discover` runs alongside `on_initialize`. Python suite: 144 passed /
+  0 failed on **both** 4.0.5 and 3.4.4 (was 8 failing). JS: 104/104.
+
+  *Upgrading:* staying on the 0.9.x line is deliberate — a `^0.9.x` range
+  reaches 0.9.18, so `npm update lulu-ads` / `pip install -U lulu-ads` is
+  enough and no dependency range needs editing. That propagation is exactly
+  what the retired 2.0.1 would have cost.
+
+  See [`examples/skybridge_server.ts`](examples/skybridge_server.ts) and
+  `npm run verify:skybridge`, which asserts all of the above against a
+  real server over an in-memory transport.
+
+- **0.9.14** — An ad's per-call `template` (LUL-64, when `/slot` reports one)
+  now wins over the `template=`/`template:` you registered with, for the
+  standalone sponsor-card widget (`register_sponsored_widget()`/
+  `registerSponsoredWidget()`). If it's absent or not a template this
+  bundle build recognizes, it falls back to your registration-time
+  default as before, then to `"card"`. **Behavior change on upgrade, no
+  code change required:** if you registered with a non-default
+  `template=` (e.g. `"hero"`), ads that carry their own live template
+  will now render in that template instead, with no opt-out. This is
+  intentional — an admin picking a template for a specific ad is meant to
+  be more specific than a blanket integrator default — but it does mean
+  your widget's visual output can change after upgrading even though you
+  changed no code. Also fixes a lookup hazard where a prototype-chain
+  name (e.g. `"constructor"`) in a live `template` value could be
+  misread as "recognized" and crash the render after the impression
+  beacon had already fired.
 - **0.9.13** — Fixed a rendered-impression billing gap (LUL-71) in the
   standalone sponsor-card widget (`register_sponsored_widget()`/
   `registerSponsoredWidget()` — the React-built card, banner, flip-card,

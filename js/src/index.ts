@@ -42,7 +42,14 @@ export interface Sponsored {
 // package.json's version on every release; deliberately not read from
 // package.json at runtime to avoid path-resolution differences across
 // ESM/CJS consumers.
-const SDK_VERSION = "0.9.14";
+// Sent to /slot as `sdk_version` (see warmUp below), so a stale value makes
+// upgrade telemetry lie about who is running what. It sat at 0.9.14 through
+// four releases for exactly that reason. Kept as a literal because importing
+// package.json would need a JSON module assertion and changes the build, but
+// test/client.test.ts pins it to package.json's version so it cannot drift
+// silently again. Python has no equivalent risk: client.py imports
+// `lulu_ads.__version__` directly.
+const SDK_VERSION = "0.9.18";
 
 const ALLOWED_CONTEXT_KEYS = new Set(["tool", "category", "query", "route", "locale", "country", "prompt", "client"]);
 const MAX_VALUE_LEN = 200;

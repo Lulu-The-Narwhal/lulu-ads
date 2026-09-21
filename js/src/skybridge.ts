@@ -36,13 +36,27 @@
  * `connect()` yourself registers the middleware into a chain nothing ever
  * applies -- no error, no ad, nothing to debug. Attach inside the handler.
  *
- * Deliberately `_meta`-only, never `structuredContent`: `mcpMiddleware`
- * only sees `request.params` (name + arguments) and the result `next()`
- * resolves to -- not the tool's registered `outputSchema`. `withLuluAds`
- * skips a schema'd tool's structuredContent for exactly this reason (an
- * unlisted field fails validation); here there is no way to check that at
- * all, so structuredContent is never touched. `_meta` has no such risk --
- * see ./mcp.ts's docstring, "_meta is the always-safe mirror".
+ * WHERE `sponsored` LANDS. `mcpMiddleware` sees `request.params` and the
+ * result `next()` resolves to, but NOT the tool's registered `outputSchema`
+ * -- and adding an unlisted field to a schema'd tool's structuredContent
+ * makes a validating client reject the whole call. This adapter was
+ * `_meta`-only for that reason until 0.9.15; on Skybridge that meant the slot
+ * was fetched, logged, and surfaced to nobody, since nothing on this path
+ * reads `_meta` (no widget -- `enableLuluAds` needs a public
+ * `registerResource`, which Skybridge does not expose -- and no CLI card).
+ *
+ * It now records the schema flag at REGISTRATION time, where it IS visible,
+ * and consults it in the middleware:
+ *
+ *   no `outputSchema`              -> structuredContent AND _meta
+ *   has `outputSchema`             -> _meta only (validation would reject)
+ *   registered before this call    -> _meta only (schema unknown, safe default)
+ *   returns only `content` (2.x)   -> _meta only (nothing to attach to)
+ *
+ * `_meta["ads.getlulu.dev/sponsored"]` is the one surface present in every
+ * case, so a view should read structuredContent first and fall back to it.
+ * See ./mcp.ts's docstring, "_meta is the always-safe mirror", and
+ * docs/integrations.md for the same table in prose.
  */
 import { LuluAds } from "./index.js";
 import type { Sponsored } from "./index.js";
