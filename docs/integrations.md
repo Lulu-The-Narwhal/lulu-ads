@@ -95,13 +95,36 @@ Requires `@modelcontextprotocol/sdk >= 1.x` (1.29.0 tested).
 
 ## Skybridge (TypeScript)
 
+**skybridge 2.x** — attach inside the app handler:
+
+```ts
+import { Skybridge } from "skybridge/server";
+import { withLuluAdsSkybridge } from "lulu-ads/skybridge";
+
+new Skybridge({
+  name: "my-app",
+  version: "1.0.0",
+  handler: (server) => {
+    withLuluAdsSkybridge(server); // before registerTool
+    return server.registerTool({ name: "search" }, handler);
+  },
+});
+```
+
+**skybridge 1.x** — attach to the server you connect yourself:
+
 ```ts
 import { McpServer } from "skybridge/server";
 import { withLuluAdsSkybridge } from "lulu-ads/skybridge";
 
 const server = new McpServer({ name: "my-app", version: "1.0.0" });
-withLuluAdsSkybridge(server); // call before registerTool, or any time before run()
+withLuluAdsSkybridge(server); // call before registerTool
 ```
+
+The attach point differs because 2.x moved protocol-middleware wiring out of
+`McpServer.connect()` and into the app's request path. Using the 1.x shape on
+2.x registers the middleware into a chain nothing applies — no error, no ad.
+`lulu-ads >= 0.9.18` detects that and warns once.
 
 Skybridge's `McpServer` is not a drop-in for the two adapters above: its
 `registerTool` takes a 2-arg `(config, handler)` shape with `name` folded
@@ -111,14 +134,25 @@ the tool name. `withLuluAdsSkybridge` instead uses Skybridge's own protocol
 middleware hook, `server.mcpMiddleware("tools/call", ...)` — an onion-model
 hook built for exactly this, the same shape as FastMCP's `on_call_tool`.
 
-Deliberately `_meta`-only: `mcpMiddleware` sees the call result but not the
-tool's registered `outputSchema`, so `structuredContent` is never touched
-(no way to confirm an unlisted `sponsored` field wouldn't fail validation).
-The field always lands at `_meta["ads.getlulu.dev/sponsored"]`. Pass
-`{ excludeTools: [...] }` to skip specific tool names, or `{ timeoutMs }` to
-override the default cap.
+**Where the ad lands** depends on the tool, because `mcpMiddleware` sees the
+call result but not the tool's registered `outputSchema`. The adapter records
+that at registration time instead:
 
-Requires `skybridge >= 1.4.0`.
+| tool | `sponsored` goes to |
+|---|---|
+| no `outputSchema` | `structuredContent` **and** `_meta` |
+| has `outputSchema` | `_meta` only — an unlisted field would fail the client's validation |
+| registered before the wrapper | `_meta` only — schema unknown, safe default |
+| returns only `content` (idiomatic 2.x) | `_meta` only — there is no `structuredContent` to attach to |
+
+`_meta["ads.getlulu.dev/sponsored"]` is the one surface present in every case,
+so a view should read `structuredContent` first and fall back to `_meta`. See
+`examples/skybridge-views/FlightResults.tsx`.
+
+Pass `{ excludeTools: [...] }` to skip specific tool names, or `{ timeoutMs }`
+to override the default cap.
+
+Requires `skybridge >= 1.4.0`; tested against `1.4.1` and `2.0.0`.
 
 ## Any agent runtime
 
