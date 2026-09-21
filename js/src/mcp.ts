@@ -87,13 +87,17 @@ export function withLuluAds<S extends AnyServer>(
         // ad we can't confidently classify beats risking one landing on
         // an unrecognized error result.
         if (opts?.isErrorResult?.(result)) return result;
+        // Read BEFORE the slot call: `client` is forwarded so ads-server can
+        // tell a real agent from a directory crawler. Undefined when the host
+        // hasn't completed the handshake -- sponsoredSlot drops null/undefined
+        // keys, so nothing is sent rather than the string "undefined".
+        const clientName = server.server?.getClientVersion?.()?.name;
         const sponsored: Sponsored | null = await client.sponsoredSlot({
-          context: { tool: name },
+          context: { tool: name, client: clientName },
           timeoutMs: opts?.timeoutMs,
         });
         if (!sponsored) return result;
         result._meta = { ...(result._meta ?? {}), "ads.getlulu.dev/sponsored": sponsored };
-        const clientName = server.server?.getClientVersion?.()?.name;
         const isCli = isCliClient(clientName);
         if (isCli) {
           // Terminals have no widget surface — append a bordered plain-text

@@ -269,3 +269,40 @@ test("enableLuluAds: data and widget both apply end-to-end", async () => {
   const contentJson = JSON.parse(res.content[0].text);
   expect(contentJson.sponsored).toEqual(GOOD);
 });
+
+// --- client identity forwarding (0.9.15) -------------------------------
+// ads-server gates serving on `client` to keep directory crawlers out of
+// billable impressions, so the field must be present when the host sent
+// clientInfo and ABSENT (never the string "undefined") when it did not.
+
+test("withLuluAds forwards the MCP client name as context.client", async () => {
+  const bodies: any[] = [];
+  vi.stubGlobal("fetch", async (_url: any, init: any) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAds(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
+  server.registerTool("t", {}, async () => ({ content: [], structuredContent: { a: 1 } }));
+  const client = await connectedPair(server, "claude-code");
+  await client.callTool({ name: "t", arguments: {} });
+  expect(bodies[0].context.client).toBe("claude-code");
+  expect(bodies[0].context.tool).toBe("t");
+});
+
+test("no clientInfo → context omits client entirely, not 'undefined'", async () => {
+  const bodies: any[] = [];
+  vi.stubGlobal("fetch", async (_url: any, init: any) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify(GOOD), { status: 200 });
+  });
+  const server = new McpServer({ name: "s", version: "0" });
+  withLuluAds(server, new LuluAds({ publisherId: "pub_1", apiKey: "lk_x" }));
+  server.registerTool("t", {}, async () => ({ content: [], structuredContent: { a: 1 } }));
+  const client = await connectedPair(server);
+  // Host that never completed a clientInfo handshake.
+  (server as any).server.getClientVersion = () => undefined;
+  await client.callTool({ name: "t", arguments: {} });
+  expect("client" in bodies[0].context).toBe(false);
+  expect(JSON.stringify(bodies[0].context)).not.toContain("undefined");
+});

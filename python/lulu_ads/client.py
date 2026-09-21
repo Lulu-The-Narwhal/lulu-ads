@@ -29,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 import httpx
 
-_ALLOWED_CONTEXT_KEYS = frozenset({"tool", "category", "query", "route", "locale", "country", "prompt"})
+_ALLOWED_CONTEXT_KEYS = frozenset({"tool", "category", "query", "route", "locale", "country", "prompt", "client"})
 _MAX_VALUE_LEN = 200
 # ads-server only classifies server-side (a real Gemini call on its own 2.0s
 # internal budget, see ads-server/app/classify.py) when "category" is absent

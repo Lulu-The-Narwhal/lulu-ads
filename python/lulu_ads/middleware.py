@@ -34,11 +34,27 @@ _background_tasks: set[asyncio.Task] = set()
 def _connected_client_name(context: MiddlewareContext) -> str | None:
     """Best-effort read of the MCP clientInfo.name sent at initialize.
     Returns None on any failure — this must never break a tool call.
+
+    The attribute was renamed in MCP SDK v2 (`clientInfo` -> `client_info`),
+    the same snake_case rename that hit tool annotations. Reading only the
+    old spelling returned None on every fastmcp 4.x host, which silently
+    disabled BOTH the CLI text card (is_cli_client(None) is False) and the
+    `client` field ads-server uses to keep crawlers out of billable
+    impressions -- with nothing raising. Try the new name first, then the
+    old, so one accessor serves fastmcp 3.x and 4.x alike.
     """
     try:
-        return context.fastmcp_context.session.client_params.clientInfo.name
+        params = context.fastmcp_context.session.client_params
     except Exception:
         return None
+    for attr in ("client_info", "clientInfo"):
+        try:
+            name = getattr(params, attr).name
+        except Exception:
+            continue
+        if name:
+            return name
+    return None
 
 
 async def _has_output_schema(context: MiddlewareContext, tool_name: str) -> bool:
@@ -217,7 +233,12 @@ class LuluAdsMiddleware(Middleware):
                 return result
 
             sponsored = await self._ads.sponsored_slot(
-                context={"tool": tool_name}, timeout_ms=self._timeout_ms
+                # client is the MCP clientInfo.name read above -- already in
+                # hand for the CLI check, forwarded so ads-server can tell a
+                # real agent from a directory crawler. None when the host
+                # sent no clientInfo; the client drops None keys.
+                context={"tool": tool_name, "client": client_name},
+                timeout_ms=self._timeout_ms,
             )
             if sponsored is None:
                 return result

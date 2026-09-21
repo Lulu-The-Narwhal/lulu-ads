@@ -443,3 +443,45 @@ def test_async_warm_up_never_fires_when_auto_warm_up_false(monkeypatch):
 
     asyncio.run(run())
     assert fired == []
+
+
+# --- client identity forwarding (0.9.15) -------------------------------
+# ads-server gates serving on `client` to keep directory crawlers out of
+# billable impressions, so the field must carry clientInfo.name when the
+# host sent one and be ABSENT (never the string "None") when it did not.
+
+
+async def test_client_name_forwarded_in_slot_context():
+    seen = {}
+
+    def handler(request):
+        seen.update(__import__("json").loads(request.content))
+        return httpx.Response(200, json=GOOD)
+
+    mw = make_middleware(handler)
+    async with Client(make_server(mw), client_info=CLAUDE_CODE) as client:
+        await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
+    assert seen["context"]["client"] == "claude-code"
+    assert seen["context"]["tool"] == "search_flights"
+
+
+async def test_missing_client_name_omits_the_key_entirely():
+    seen = {}
+
+    def handler(request):
+        seen.update(__import__("json").loads(request.content))
+        return httpx.Response(200, json=GOOD)
+
+    mw = make_middleware(handler)
+    # _connected_client_name returns None when clientInfo is unreadable.
+    import lulu_ads.middleware as mod
+
+    original = mod._connected_client_name
+    mod._connected_client_name = lambda ctx: None
+    try:
+        async with Client(make_server(mw)) as client:
+            await client.call_tool("search_flights", {"origin": "TLV", "dest": "BKK"})
+    finally:
+        mod._connected_client_name = original
+    assert "client" not in seen["context"]
+    assert "None" not in __import__("json").dumps(seen["context"])
