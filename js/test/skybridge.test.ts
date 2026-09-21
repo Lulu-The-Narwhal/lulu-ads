@@ -1,5 +1,14 @@
 import { expect, test, vi, afterEach } from "vitest";
-import { McpServer } from "skybridge/server";
+import * as SB from "skybridge/server";
+const { McpServer } = SB;
+// skybridge 2.x introduced a top-level Skybridge app and moved protocol
+// middleware wiring out of McpServer.connect() into the app's request path
+// (protocolMiddlewareEntries() is consumed by dist/server/app.js). So on 2.x a
+// bare `new McpServer(...).connect(transport)` never applies mcpMiddleware and
+// every ad assertion below would fail for harness reasons, not product ones.
+// connectedPair therefore wraps the server in a Skybridge app when that class
+// exists, and connects directly when it doesn't. One suite, both majors.
+const Skybridge: any = (SB as any).Skybridge;
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { z } from "zod";
@@ -10,10 +19,13 @@ const GOOD = { label: "Sponsored", text: "Lulu Ads", url: "https://ads.getlulu.d
 
 afterEach(() => vi.unstubAllGlobals());
 
-async function connectedPair(server: McpServer, clientName = "t") {
+async function connectedPair(server: any, clientName = "t") {
   const [ct, st] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: clientName, version: "0" });
-  await Promise.all([server.connect(st), client.connect(ct)]);
+  const target = Skybridge
+    ? new Skybridge({ name: "s", version: "0", handler: () => server })
+    : server;
+  await Promise.all([target.connect(st), client.connect(ct)]);
   return client;
 }
 

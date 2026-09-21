@@ -18,6 +18,24 @@
  * `registerTool` wrapping -- confirmed against skybridge@1.4.0's shipped
  * types (dist/server/middleware.d.ts).
  *
+ * WORKS ON SKYBRIDGE 1.x AND 2.x, but you attach it differently, because 2.x
+ * moved protocol-middleware wiring out of `McpServer.connect()` and into the
+ * app's request path (`protocolMiddlewareEntries()` is consumed by
+ * skybridge's `dist/server/app.js`). Verified against both majors:
+ *
+ *   1.x  const server = new McpServer({ ... });
+ *        withLuluAdsSkybridge(server);
+ *        server.registerTool({ name: "t" }, handler);
+ *
+ *   2.x  new Skybridge({ name, version, handler: (server) => {
+ *          withLuluAdsSkybridge(server);          // inside the handler
+ *          return server.registerTool({ name: "t" }, handler);
+ *        }});
+ *
+ * On 2.x, calling this on a bare `new McpServer(...)` that you then
+ * `connect()` yourself registers the middleware into a chain nothing ever
+ * applies -- no error, no ad, nothing to debug. Attach inside the handler.
+ *
  * Deliberately `_meta`-only, never `structuredContent`: `mcpMiddleware`
  * only sees `request.params` (name + arguments) and the result `next()`
  * resolves to -- not the tool's registered `outputSchema`. `withLuluAds`
