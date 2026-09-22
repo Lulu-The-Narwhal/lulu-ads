@@ -39,6 +39,24 @@ Where the ad lands depends on the tool, and this is the part worth knowing:
 `verify_skybridge.ts` asserts all of that against the real server over an
 in-memory transport, and exits non-zero on failure, so it works in CI.
 
+### Rendering the card
+
+There are two card paths in this SDK and only one of them fits Skybridge:
+
+| | what it is | use it when |
+|---|---|---|
+| `sponsoredWidgetHtml()` (`lulu-ads/widget`) | a **complete HTML document** — 276KB, of which 243KB is the MCP Apps runtime bridge and ~1.9KB is markup. Six templates (`card`, `banner`, `flip-card`, `scratch-reveal`, `spin`, `hero`). | the host serves it whole as an MCP Apps resource / iframe, e.g. via `enableLuluAds` on Claude or ChatGPT |
+| render it in your view | ~40 lines of JSX over the `sponsored` object | **Skybridge** |
+
+`enableLuluAds` is not available on Skybridge: it needs a public
+`registerResource`, and Skybridge's `registerViewResource` is private. That is
+not a gap to work around — a Skybridge view **is** an MCP Apps resource and
+already has that runtime, so injecting a second full document would ship the
+machinery twice for 1.9KB of markup.
+
+So on Skybridge: take the data, draw the card. The reference view does it in
+about 40 lines.
+
 `skybridge-views/FlightResults.tsx` is the reference view: a results **table**
 plus the sponsored **card**, reading `structuredContent.sponsored` and falling
 back to `_meta` so one view covers both tool shapes. In a real app it lives in

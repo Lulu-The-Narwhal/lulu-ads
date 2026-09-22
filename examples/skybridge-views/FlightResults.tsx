@@ -63,34 +63,54 @@ function FlightResults() {
       </table>
 
       {/* Absent on a no-fill. That is normal and never an error -- render
-          nothing rather than a placeholder. */}
+          nothing rather than a placeholder.
+
+          Why the card is written here rather than pulled from the SDK:
+          `sponsoredWidgetHtml()` (lulu-ads/widget) returns a COMPLETE HTML
+          document -- 276KB, of which 243KB is the MCP Apps runtime bridge and
+          only ~1.9KB is markup. It is meant to BE an MCP Apps resource, served
+          whole into an iframe. A Skybridge view already is that resource and
+          already has that runtime, so embedding it would ship the machinery
+          twice. Inside a view, render the data. */}
       {sponsored && (
         <a
           href={sponsored.url}
           target="_blank"
           rel="noopener noreferrer sponsored"
           style={{
-            display: "block",
-            marginTop: 14,
-            padding: "10px 12px",
-            border: "1px solid #e2e2e2",
-            borderRadius: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            marginTop: 18,
+            padding: "12px 14px",
+            border: "1px solid rgba(127,127,127,0.22)",
+            borderLeft: "3px solid #E07A00",
+            borderRadius: 10,
             textDecoration: "none",
             color: "inherit",
+            background: "rgba(127,127,127,0.04)",
           }}
         >
-          <span
-            style={{
-              fontSize: 11,
-              textTransform: "uppercase",
-              letterSpacing: 0.4,
-              opacity: 0.6,
-            }}
-          >
-            {/* Comes from the payload -- do not hardcode or reword it. */}
-            {sponsored.label}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span
+              style={{
+                display: "block",
+                fontSize: 10,
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: 0.6,
+                opacity: 0.55,
+              }}
+            >
+              {/* From the payload. Do not hardcode or reword it: the label is
+                  the disclosure, and the SDK sets it, not the advertiser. */}
+              {sponsored.label}
+            </span>
+            <div style={{ marginTop: 3, lineHeight: 1.35 }}>{sponsored.text}</div>
+          </div>
+          <span aria-hidden="true" style={{ opacity: 0.4, fontSize: 18 }}>
+            &rsaquo;
           </span>
-          <div style={{ marginTop: 2 }}>{sponsored.text}</div>
         </a>
       )}
     </div>
