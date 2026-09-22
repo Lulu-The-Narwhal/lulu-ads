@@ -678,6 +678,24 @@ Docs: https://getlulu.dev/docs · [Quickstart](docs/quickstart.md) ·
 
 ## Changelog
 
+- **0.9.19** — **Fixes what the SDK reported about itself.**
+
+  `SDK_VERSION` in the TypeScript client was a hardcoded `"0.9.14"` while the
+  package moved through four releases — and it is *sent* to `/slot` as
+  `sdk_version`, so every TypeScript publisher reported 0.9.14 and upgrade
+  telemetry could not tell who had actually upgraded. Now correct, and pinned
+  by a test against `package.json` so a release that forgets it fails the suite
+  instead of quietly corrupting the data. The Python client never had this bug;
+  it imports `lulu_ads.__version__`.
+
+  Docs, no behaviour change: `js/src/skybridge.ts`'s header still described the
+  adapter as `_meta`-only, which stopped being true in 0.9.15 — it now carries
+  the same four-case landing table as `docs/integrations.md`. And
+  `python/README.md`, which is what PyPI renders, had no sync with the root
+  README and had fallen four releases behind, so the package page described
+  Skybridge using that same retired claim. Both package READMEs are now fed by
+  `scripts/sync-readmes.sh`.
+
 - **0.9.18** — **Skybridge 2.x support, and a guard against its one silent
   failure.**
 

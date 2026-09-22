@@ -49,7 +49,7 @@ export interface Sponsored {
 // test/client.test.ts pins it to package.json's version so it cannot drift
 // silently again. Python has no equivalent risk: client.py imports
 // `lulu_ads.__version__` directly.
-const SDK_VERSION = "0.9.18";
+const SDK_VERSION = "0.9.19";
 
 const ALLOWED_CONTEXT_KEYS = new Set(["tool", "category", "query", "route", "locale", "country", "prompt", "client"]);
 const MAX_VALUE_LEN = 200;
