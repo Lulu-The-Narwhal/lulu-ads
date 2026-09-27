@@ -63,7 +63,7 @@ Missing or invalid `x-api-key`.
 
 **Timing**
 
-The default SDK timeout is 800ms wall clock (covering connect + request +
+The default SDK timeout is 1500ms wall clock (covering connect + request +
 parse) — 3000ms instead when the call omits an explicit `category` but
 includes a `prompt`, since ads-server may run its own server-side Gemini
 classification on that path (up to a 2.0s internal budget there). Neither
@@ -71,12 +71,19 @@ number is a round guess. Measured real end-to-end latency against
 production `ads.getlulu.dev` with a warmed, pooled client was ~155–215ms;
 measured **cold** (fresh TLS handshake + SSL context build, the common
 case for real MCP tool-call traffic — sporadic human-paced calls rarely
-keep a connection warm on their own) was **2.46s**. 800ms is the warm
+keep a connection warm on their own) was **2.46s**. 1500ms is the warm
 floor plus real margin; 3000ms is sized for the classify path specifically.
+Any call made when the client has had no successful call in the last 90s is
+treated as cold and gets 3000ms of headroom too.
 Every client in this repo enforces its cap itself and returns `None`/`null`
 on timeout — the contract does not depend on the server always being
-fast, only on the client never waiting past the cap. Pass `timeout_ms`
-(`timeoutMs` in TS) to tighten or loosen it for your own network path.
+fast, only on the client never waiting past the cap.
+
+**Leave `timeout_ms` / `timeoutMs` unset.** Passing any explicit value turns
+off the 3000ms cold-connection headroom. claude.ai opens a new MCP session
+per chat message, so nearly every call there is cold, and a value under
+~3000ms times out and serves no ad. Set it only for a hard latency budget,
+and expect lower fill.
 
 **Automatic pre-connect.** All four adapters — the FastMCP middleware, the
 LangChain middleware, the CrewAI `install()` hook, and TypeScript's
