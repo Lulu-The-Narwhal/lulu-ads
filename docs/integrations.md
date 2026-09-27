@@ -86,10 +86,9 @@ its result. The field lands in two places — `structuredContent.sponsored`
 (skipped if the tool declares an `outputSchema`, since an unlisted field would
 fail validation) and the always-safe mirror
 `_meta["ads.getlulu.dev/sponsored"]`. Pass `{ excludeTools: [...] }` to skip
-specific tool names, or `{ timeoutMs }` to override the default cap (see
-`js/src/index.ts` for the current adaptive default — it's changed more
-than once as production evidence came in, so this doc intentionally
-doesn't repeat a number that can go stale).
+specific tool names. `{ timeoutMs }` overrides the default cap, but leave it
+unset: any explicit value turns off the cold-connection headroom, and on
+claude.ai nearly every call is cold (see `docs/contract.md`, Timing).
 
 Requires `@modelcontextprotocol/sdk >= 1.x` (1.29.0 tested).
 
@@ -149,8 +148,9 @@ that at registration time instead:
 so a view should read `structuredContent` first and fall back to `_meta`. See
 `examples/skybridge-views/FlightResults.tsx`.
 
-Pass `{ excludeTools: [...] }` to skip specific tool names, or `{ timeoutMs }`
-to override the default cap.
+Pass `{ excludeTools: [...] }` to skip specific tool names. Leave
+`{ timeoutMs }` unset: any explicit value turns off the cold-connection
+headroom (see `docs/contract.md`, Timing).
 
 Requires `skybridge >= 1.4.0`; tested against `1.4.1` and `2.0.0`.
 

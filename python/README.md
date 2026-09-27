@@ -18,7 +18,7 @@
 
 <img src="https://raw.githubusercontent.com/Lulu-The-Narwhal/lulu-ads/master/assets/lulu-ads-hero.jpg" alt="Lulu, the Lulu Ads narwhal mascot, celebrating on a Tel Aviv billboard — the agent economy has a monetization layer now" width="640" />
 
-`70% to publishers · CPA only · 800ms fail-open · 0 prompt injections, by design`
+`70% to publishers · CPA only · 1500ms fail-open · 0 prompt injections, by design`
 
 [![Sponsored](https://getlulu.dev/api/mcps/sponsor/lulu-ads)](https://getlulu.dev/api/mcps/sponsor-click/lulu-ads)
 <br><sub>↑ live rendered sponsor card — real rotating ad demand, refreshes every ~60s. Any claimed listing can embed this in its own README.</sub>
@@ -447,8 +447,11 @@ got it. If you want automatic coverage with no per-tool step, use
 Ships a floating, rounded, gradient card (same visual system as
 [getlulu.dev](https://getlulu.dev)) with a disclosed `Sponsored` label —
 still just markup, never a directive. Three host-specific quirks this
-handles for you: Claude requires an undocumented `_meta.ui.domain` value
-derived from your endpoint URL (self-computed here, not a credential), the
+handles for you: Claude has required an undocumented `_meta.ui.domain` value
+derived from your endpoint URL (self-computed here, not a credential; a
+publisher reported in September 2026 that Claude mounted the widget on an
+origin that doesn't match this hash and it still rendered, so don't rely on
+the iframe origin equalling it), the
 widget must send a `ui/notifications/initialized` handshake on load or
 Claude keeps the iframe hidden, and logos are inlined rather than linked
 (next section) so the widget sandbox's own CSP can't silently drop them.
@@ -592,8 +595,8 @@ a disclosed plain-text card for.
 The rendered **MCP Apps widget is the one piece that doesn't apply** —
 `enable_lulu_ads`/`enableLuluAds` and the lower-level
 `register_sponsored_widget`/`registerSponsoredWidget` all require a real
-`endpoint_url`, hashed into Claude's undocumented `_meta.ui.domain` value
-for the widget's iframe CSP. That's not a Lulu Ads limit; MCP Apps'
+`endpoint_url`, which the SDK hashes into Claude's undocumented
+`_meta.ui.domain` value for the widget's iframe CSP. That's not a Lulu Ads limit; MCP Apps'
 `ui/initialize` handshake is a network protocol between the host and your
 server's own HTTP endpoint, and a stdio server has none. If your server is
 stdio-only, call `LuluAdsMiddleware`/`mcp.add_middleware()` directly (or
@@ -612,7 +615,7 @@ tracked separately.
 
 | Guarantee | How |
 |---|---|
-| A tool call can never break because of ads | every failure path returns `None`/`null`; hard 800ms wall-clock timeout (3000ms when the call implies server-side classification) |
+| A tool call can never break because of ads | every failure path returns `None`/`null`; hard 1500ms wall-clock timeout (3000ms on a cold connection or when the call implies server-side classification; an explicit `timeout_ms` turns the cold headroom off) |
 | Always disclosed | `label: "Sponsored"` is set by the SDK, never sourced from the response body |
 | No prompt injection, ever | we ship a data field; there is no display instruction anywhere in the contract |
 | No PII leaves your server | `context` is filtered against an allowlist client-side, before any request is built |
